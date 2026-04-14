@@ -1,4 +1,6 @@
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import List, Dict, Any, Optional
 from src.api.schemas import PlanRequest, PlanResponse, HealthResponse
 from src.kg.client import Neo4jClient, MilvusClient
 from src.graphrag.planner import Planner
@@ -46,3 +48,56 @@ async def health_check():
         milvus=milvus_status,
         llm=llm_status
     )
+
+
+class SequenceRequest(BaseModel):
+    battery_model: str
+    components: List[Dict[str, Any]] = []
+
+
+class AllocateRequest(BaseModel):
+    battery_model: str
+    sequence: Dict[str, Any]
+
+
+class GraphRequest(BaseModel):
+    battery_model: str
+    sequence: Dict[str, Any]
+    allocations: List[Dict[str, Any]] = []
+
+
+@router.post('/api/v1/disassembly/sequence')
+async def create_sequence(request: SequenceRequest):
+    from src.sequence.planner import SequencePlanner
+
+    planner = SequencePlanner()
+    result = planner.plan(request.battery_model, request.components)
+
+    return {'code': 0, 'data': result.model_dump()}
+
+
+@router.post('/api/v1/disassembly/allocate')
+async def allocate_tasks(request: AllocateRequest):
+    from src.sequence.planner import DisassemblySequence
+    from src.allocator.allocator import HumanRobotAllocator
+    from src.utils.llm_client import LLMClient
+    from src.config import settings
+
+    sequence = DisassemblySequence(**request.sequence)
+    llm = LLMClient(settings.openai_api_key, settings.openai_base_url)
+    allocator = HumanRobotAllocator(llm)
+    result = allocator.allocate(sequence)
+
+    return {'code': 0, 'data': result.model_dump()}
+
+
+@router.post('/api/v1/disassembly/graph')
+async def generate_graph(request: GraphRequest):
+    from src.sequence.planner import DisassemblySequence
+    from src.graph_output.generator import GraphOutputGenerator
+
+    sequence = DisassemblySequence(**request.sequence)
+    gen = GraphOutputGenerator()
+    result = gen.generate(sequence, request.allocations)
+
+    return {'code': 0, 'data': result.model_dump()}
