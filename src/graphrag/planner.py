@@ -1,3 +1,4 @@
+from typing import Optional
 from src.graphrag.query_rewriter import QueryRewriter
 from src.graphrag.retriever import MultiPathRetriever
 from src.graphrag.ranker import EvidenceRanker
@@ -19,7 +20,7 @@ class Planner:
         self.generator = PlanGenerator(llm_client)
         self.feedback = FeedbackLoop(retriever, self.ranker, self.generator)
     
-    async def plan(self, query: str, battery_model: str, context: list[str] = None,
+    async def plan(self, query: str, battery_model: str, context: Optional[list[str]] = None,
                    debug: bool = False) -> dict:
         trace = {'timing': {}} if debug else None
         
@@ -27,7 +28,13 @@ class Planner:
         if debug:
             trace['start_time'] = start
         
-        rewritten_intents = self.rewriter.rewrite(query, context)
+        try:
+            rewritten_intents = self.rewriter.rewrite(query, context)
+            if not rewritten_intents:
+                rewritten_intents = [query]
+        except Exception as e:
+            logger.warning(f'Rewrite failed, using original: {e}')
+            rewritten_intents = [query]
         if debug:
             trace['rewritten_queries'] = rewritten_intents
             trace['timing']['rewrite_ms'] = int((time.time() - start) * 1000)
@@ -38,8 +45,11 @@ class Planner:
             trace['retrieval_nodes'] = len(evidence_graph.nodes)
             trace['timing']['retrieve_ms'] = int((time.time() - start) * 1000)
         
-        ranked_evidence = self.ranker.rank(evidence_graph.nodes, query)
-        evidence_graph.nodes = ranked_evidence
+        if evidence_graph.nodes:
+            ranked_evidence = self.ranker.rank(evidence_graph.nodes, query)
+            evidence_graph.nodes = ranked_evidence
+        else:
+            ranked_evidence = []
         
         start = time.time()
         initial_plan = self.generator.generate(query, evidence_graph, battery_model, context)

@@ -1,6 +1,8 @@
 import pytest
 import sys
-sys.path.insert(0, 'D:/KG_project/Final4.14')
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from src.kg.client import Neo4jClient, MilvusClient
 
 

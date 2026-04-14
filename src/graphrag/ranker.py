@@ -1,5 +1,4 @@
 from src.kg.models import EvidenceNode
-from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -47,7 +46,7 @@ class EvidenceRanker:
         return min(overlap / max(len(query_words), 1), 1.0)
     
     def _calculate_graph_score(self, node: EvidenceNode) -> float:
-        degree = len(node.relationships)
+        degree = len(node.relationships) if node.relationships else 0
         return min(degree / 10.0, 1.0)
     
     def _calculate_recency_score(self, node: EvidenceNode) -> float:

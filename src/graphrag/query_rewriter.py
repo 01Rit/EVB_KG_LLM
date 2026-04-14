@@ -40,7 +40,7 @@ class QueryRewriter:
                 intents = json.loads(response)
                 if isinstance(intents, list):
                     return [str(i) for i in intents]
-            except:
+            except json.JSONDecodeError:
                 pass
         
         lines = response.split('\n')
