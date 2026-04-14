@@ -1,0 +1,12 @@
+import pytest
+import sys
+sys.path.insert(0, 'D:/KG_project/Final4.14')
+from src.kg.client import Neo4jClient, MilvusClient
+
+
+def test_neo4j_client_import():
+    assert Neo4jClient is not None
+
+
+def test_milvus_client_import():
+    assert MilvusClient is not None
