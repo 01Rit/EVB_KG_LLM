@@ -1,0 +1,72 @@
+from typing import Dict, List, Any
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class TimeEstimator:
+    MTM_BASE_SECONDS = 85
+
+    TOOL_SWITCH_TIMES = {
+        'screwdriver': 5,
+        'wrench': 5,
+        'plier': 3,
+        'hammer': 2,
+        'heat_gun': 10,
+        'extractor': 8,
+        'none': 0
+    }
+
+    POSITION_TIMES = {
+        'easy': 5,
+        'medium': 15,
+        'difficult': 30
+    }
+
+    def __init__(self):
+        self.default_tool_switch = 5
+        self.default_position = 15
+
+    def calculate_time(self, operation_time_score: float = 1.0,
+                   tool_switch_time: int = 0,
+                   position_move_time: int = 0) -> int:
+        if tool_switch_time == 0:
+            tool_switch_time = self.default_tool_switch
+        if position_move_time == 0:
+            position_move_time = self.default_position
+
+        score = operation_time_score
+
+        time_seconds = (score / 5) * self.MTM_BASE_SECONDS + tool_switch_time + position_move_time
+
+        return int(time_seconds)
+
+    def estimate_from_component(self, component: Dict) -> int:
+        operation_score = component.get('operation_time_score', 1.0)
+
+        tools = component.get('tool_required', [])
+        tool_time = max(
+            [self.TOOL_SWITCH_TIMES.get(t.lower(), self.default_tool_switch) for t in tools],
+            default=0
+        )
+
+        position = component.get('position_difficulty', 'medium')
+        position_time = self.POSITION_TIMES.get(position.lower(), self.default_position)
+
+        return self.calculate_time(operation_score, tool_time, position_time)
+
+    def estimate_sequence_time(self, components: List[Dict]) -> Dict:
+        total_time = 0
+        details = []
+
+        for comp in components:
+            comp_id = comp.get('id', '') or comp.get('name', '')
+            time = self.estimate_from_component(comp)
+            total_time += time
+            details.append({'component': comp_id, 'time': time})
+
+        return {
+            'total_seconds': total_time,
+            'total_minutes': round(total_time / 60, 1),
+            'details': details
+        }
