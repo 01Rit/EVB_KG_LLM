@@ -1,3 +1,5 @@
+from typing import Optional
+
 from src.graphrag.retriever import MultiPathRetriever
 from src.graphrag.ranker import EvidenceRanker
 from src.graphrag.generator import PlanGenerator
@@ -16,7 +18,7 @@ class FeedbackLoop:
         self.max_iterations = max_iterations
     
     async def refine(self, query: str, initial_plan: dict, evidence: EvidenceGraph,
-                     battery_model: str, context: list[str] = None) -> tuple[dict, EvidenceGraph, int]:
+                     battery_model: str, context: Optional[list[str]] = None) -> tuple[dict, EvidenceGraph, int]:
         iteration_count = 0
         
         for iteration in range(self.max_iterations):
@@ -54,6 +56,6 @@ class FeedbackLoop:
     async def _retrieve_missing(self, missing_items: list[str]) -> list:
         all_nodes = []
         for item in missing_items:
-            components = self.retriever._retrieve_components(item, 5)
+            components = await self.retriever._retrieve_components(item, 5)
             all_nodes.extend(components)
         return all_nodes

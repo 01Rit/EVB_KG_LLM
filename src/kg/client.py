@@ -21,7 +21,7 @@ class Neo4jClient:
             logger.error(f'Neo4j connectivity check failed: {e}')
             return False
     
-    def execute_query(self, query: str, parameters: dict = None):
+    def execute_query(self, query: str, parameters: Optional[dict] = None):
         with self.driver.session() as session:
             result = session.run(query, parameters or {})
             return [record.data() for record in result]
@@ -130,6 +130,8 @@ class MilvusClient:
             output_fields=['id', 'text', 'type']
         )
         
+        if not results or not results[0]:
+            return []
         return [
             {'id': hit.entity.get('id'), 'text': hit.entity.get('text'), 
              'type': hit.entity.get('type'), 'distance': hit.distance}
