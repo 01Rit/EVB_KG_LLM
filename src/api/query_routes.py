@@ -27,20 +27,22 @@ async def create_plan(
     neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
     llm = LLMClient(settings.openai_api_key, settings.openai_base_url)
 
-    from src.graphrag.retriever import MultiPathRetriever
+    try:
+        from src.graphrag.retriever import MultiPathRetriever
 
-    retriever = MultiPathRetriever(neo4j, None)
-    planner = Planner(llm, retriever)
+        retriever = MultiPathRetriever(neo4j, None)
+        planner = Planner(llm, retriever)
 
-    result = await planner.plan(
-        query=f"拆卸{battery_model}型号电池",
-        battery_model=battery_model,
-        context=context,
-        debug=debug
-    )
+        result = await planner.plan(
+            query=f"拆卸{battery_model}型号电池",
+            battery_model=battery_model,
+            context=context,
+            debug=debug
+        )
 
-    neo4j.close()
-    return result
+        return result
+    finally:
+        neo4j.close()
 
 
 @router.get('/query/history')

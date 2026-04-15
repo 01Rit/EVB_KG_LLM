@@ -1,3 +1,5 @@
+import ast
+
 from src.sequence.cycle_detector import CycleDetector
 from src.sequence.topological_sort import TopologicalSort
 from src.sequence.time_estimator import TimeEstimator
@@ -97,8 +99,9 @@ class SequencePlanner:
             precedence = []
             if r.get('precedence'):
                 try:
-                    precedence = eval(r['precedence']) if isinstance(r['precedence'], str) else r['precedence']
-                except:
+                    precedence = ast.literal_eval(r['precedence']) if isinstance(r['precedence'], str) else r['precedence']
+                except (ValueError, SyntaxError):
+                    logger.warning(f"Failed to parse precedence for component {r.get('id')}: {r.get('precedence')}")
                     precedence = []
 
             components.append({

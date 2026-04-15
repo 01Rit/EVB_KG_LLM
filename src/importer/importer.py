@@ -79,52 +79,62 @@ class DataImporter:
             'metadata': str(file_metadata)
         })
 
-        for comp in components:
-            self._create_component(doc_id, comp)
+        if components:
+            self._batch_create_components(doc_id, components)
 
-        for term in terms:
-            self._create_term(doc_id, term)
+        if terms:
+            self._batch_create_terms(doc_id, terms)
 
-    def _create_component(self, doc_id: str, component: Dict):
+    def _batch_create_components(self, doc_id: str, components: List[Dict]):
         cypher = '''
         MATCH (d:Document {doc_id: $doc_id})
+        UNWIND $components as comp
         CREATE (c:Component {
-            id: $id,
-            name: $name,
-            category: $category,
-            tool_required: $tools,
-            safety_level: $safety,
+            id: comp.id,
+            name: comp.name,
+            category: comp.category,
+            tool_required: comp.tools,
+            safety_level: comp.safety,
             source_doc_id: $doc_id
         })
         CREATE (d)-[:CONTAINS]->(c)
         '''
 
-        self.neo4j.execute_query(cypher, {
+        component_data = [{
             'id': str(uuid.uuid4()),
-            'name': component.get('name', ''),
-            'category': component.get('category', ''),
-            'tools': str(component.get('tools', [])),
-            'safety': component.get('safety_level', 1),
-            'doc_id': doc_id
+            'name': comp.get('name', ''),
+            'category': comp.get('category', ''),
+            'tools': str(comp.get('tools', [])),
+            'safety': comp.get('safety_level', 1)
+        } for comp in components]
+
+        self.neo4j.execute_query(cypher, {
+            'doc_id': doc_id,
+            'components': component_data
         })
 
-    def _create_term(self, doc_id: str, term: Dict):
+    def _batch_create_terms(self, doc_id: str, terms: List[Dict]):
         cypher = '''
         MATCH (d:Document {doc_id: $doc_id})
+        UNWIND $terms as term
         CREATE (t:Term {
-            term_id: $term_id,
-            definition: $definition,
-            units: $units,
+            term_id: term.term_id,
+            definition: term.definition,
+            units: term.units,
             source_doc_id: $doc_id
         })
         CREATE (d)-[:CONTAINS]->(t)
         '''
 
-        self.neo4j.execute_query(cypher, {
+        term_data = [{
             'term_id': term.get('term_id', ''),
             'definition': term.get('definition', ''),
-            'units': term.get('units'),
-            'doc_id': doc_id
+            'units': term.get('units', '')
+        } for term in terms]
+
+        self.neo4j.execute_query(cypher, {
+            'doc_id': doc_id,
+            'terms': term_data
         })
 
     def promote_to_component(self, doc_id: str, component_data: Dict) -> bool:

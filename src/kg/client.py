@@ -1,4 +1,7 @@
 from neo4j import GraphDatabase
+from contextlib import contextmanager
+from typing import Generator
+import traceback
 from pymilvus import connections, Collection
 from typing import Optional, Any
 import logging
@@ -8,10 +11,30 @@ logger = logging.getLogger(__name__)
 
 class Neo4jClient:
     def __init__(self, uri: str, user: str, password: str):
-        self.driver = GraphDatabase.driver(uri, auth=(user, password))
-    
+        self.uri = uri
+        self.user = user
+        self.password = password
+        self._driver = None
+
+    @property
+    def driver(self):
+        if self._driver is None:
+            self._driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password)
+        return self._driver
+
     def close(self):
-        self.driver.close()
+        if self._driver:
+            self._driver.close()
+            self._driver = None
+
+    @contextmanager
+    def session(self) -> Generator:
+        driver = self.driver
+        session = driver.session()
+        try:
+            yield session
+        finally:
+            session.close()
     
     def verify_connectivity(self) -> bool:
         try:

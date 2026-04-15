@@ -55,8 +55,8 @@ class CycleDetector:
             for cycle in nx.simple_cycles(self.graph):
                 if len(cycle) > 1:
                     cycles.append(cycle)
-        except:
-            pass
+        except nx.NetworkXError as e:
+            logger.warning(f"Error detecting cycles: {e}")
 
         logger.info(f"Detected {len(cycles)} cycles")
         return cycles
