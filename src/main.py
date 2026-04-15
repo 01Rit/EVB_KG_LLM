@@ -5,6 +5,7 @@ from src.api.admin_routes import router as admin_router
 from src.api.graph_routes import router as graph_router
 from src.api.query_routes import router as query_router
 from src.api.config_routes import router as config_router
+from src.api.import_routes import router as import_router
 from src.logs import logger
 
 app = FastAPI(title='动力电池拆卸知识图谱推理系统', version='1.0.0')
@@ -16,6 +17,7 @@ app.include_router(admin_router, prefix='/admin')
 app.include_router(graph_router, prefix='/api/v1')
 app.include_router(query_router, prefix='/api/v1')
 app.include_router(config_router, prefix='/api/v1')
+app.include_router(import_router, prefix='/api/v1')
 
 
 @app.on_event('shutdown')
