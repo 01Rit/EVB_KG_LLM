@@ -1,0 +1,41 @@
+mtm:
+  tool_switch_default: 5
+  position_default: 15
+  mtm_base_seconds: 85
+
+as:
+  h_weights:
+    - 0.2
+    - 0.2
+    - 0.2
+    - 0.2
+    - 0.2
+  s_weights:
+    - 0.25
+    - 0.25
+    - 0.25
+    - 0.25
+
+threshold:
+  robot_threshold: 0.6
+  human_threshold: 0.4
+
+cost:
+  cost_decision_enabled: true
+  robot_cost_default: 100.0
+  human_cost_default: 80.0
+  loss_cost_enabled: true
+
+parallel:
+  parallel_level: 0
+
+time_coefficient: 1.0
+
+llm:
+  temperature: 0.1
+  max_tokens: 2000
+
+rag:
+  top_k: 30
+  similarity_threshold: 0.72
+  retrieval_depth: 2
