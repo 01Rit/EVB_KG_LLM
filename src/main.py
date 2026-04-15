@@ -2,7 +2,8 @@ from fastapi import FastAPI
 from src.api.routes import router
 from src.api.middleware import logging_middleware
 from src.api.admin_routes import router as admin_router
-import logging
+from src.api.graph_routes import router as graph_router
+from src.logs import logger
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,7 @@ app.middleware('http')(logging_middleware)
 
 app.include_router(router)
 app.include_router(admin_router, prefix='/admin')
+app.include_router(graph_router, prefix='/api/v1')
 
 
 @app.on_event('shutdown')
