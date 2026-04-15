@@ -43,14 +43,17 @@ async def list_documents():
            count(c) as component_count
     ORDER BY d.title
     '''
-    results = neo4j.execute_query(cypher)
+    try:
+        results = neo4j.execute_query(cypher)
 
-    return [DocumentResponse(
-        doc_id=r['doc_id'],
-        title=r['title'],
-        source=r['source'],
-        component_count=r['component_count']
-    ) for r in results]
+        return [DocumentResponse(
+            doc_id=r['doc_id'],
+            title=r['title'],
+            source=r['source'],
+            component_count=r['component_count']
+        ) for r in results]
+    finally:
+        neo4j.close()
 
 
 @router.post('/api/v1/admin/components/promote')
@@ -63,21 +66,24 @@ async def promote_document(request: PromoteRequest):
     neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
     llm = LLMClient(settings.openai_api_key, settings.openai_base_url)
 
-    importer = DataImporter(neo4j, llm)
-    component_data = {
-        'name': request.name,
-        'battery_model': request.battery_model,
-        'tool_required': request.tool_required,
-        'safety_level': request.safety_level,
-        'precedence': request.precedence
-    }
+    try:
+        importer = DataImporter(neo4j, llm)
+        component_data = {
+            'name': request.name,
+            'battery_model': request.battery_model,
+            'tool_required': request.tool_required,
+            'safety_level': request.safety_level,
+            'precedence': request.precedence
+        }
 
-    success = importer.promote_to_component(request.doc_id, component_data)
+        success = importer.promote_to_component(request.doc_id, component_data)
 
-    if not success:
-        raise HTTPException(status_code=500, detail='Promotion failed')
+        if not success:
+            raise HTTPException(status_code=500, detail='Promotion failed')
 
-    return {'code': 0, 'message': 'Component promoted successfully'}
+        return {'code': 0, 'message': 'Component promoted successfully'}
+    finally:
+        neo4j.close()
 
 
 @router.get('/api/v1/admin/components')
@@ -91,10 +97,13 @@ async def list_components():
     RETURN c.id as id, c.name as name, c.battery_model as battery_model
     ORDER BY c.name
     '''
-    results = neo4j.execute_query(cypher)
+    try:
+        results = neo4j.execute_query(cypher)
 
-    return [ComponentResponse(
-        id=r['id'],
-        name=r['name'],
-        battery_model=r['battery_model']
-    ) for r in results]
+        return [ComponentResponse(
+            id=r['id'],
+            name=r['name'],
+            battery_model=r['battery_model']
+        ) for r in results]
+    finally:
+        neo4j.close()

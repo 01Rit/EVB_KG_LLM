@@ -2,7 +2,7 @@ export interface GraphNode {
   id: string
   name: string
   type: 'L1' | 'L2' | 'L3'
-  properties: Record<string, any>
+  properties: Record<string, unknown>
 }
 
 export interface GraphEdge {
@@ -60,6 +60,22 @@ export interface SequenceStep {
   tool_required: string[]
   safety_level: number
   assignee?: 'human' | 'robot'
+}
+
+export interface L1ComponentInput {
+  name: string
+  battery_model: string
+  tool_required: string[]
+  safety_level: number
+  precedence: string[]
+}
+
+export interface L3TermInput {
+  terms: Array<{
+    term_id: string
+    definition: string
+    units: string
+  }>
 }
 
 export interface Config {

@@ -6,6 +6,8 @@ import type {
   Config,
   GraphNode,
   GraphEdge,
+  L1ComponentInput,
+  L3TermInput,
 } from '../types'
 
 const api = axios.create({
@@ -32,14 +34,14 @@ export const sequenceApi = {
 
 export const configApi = {
   getAll: () => api.get<Config>('/config'),
-  update: (category: string, data: any) =>
+  update: (category: string, data: Record<string, unknown>) =>
     api.put(`/config/${category}`, data),
   validate: () => api.get('/config/validate'),
   reload: () => api.post('/config/reload'),
 }
 
 export const importApi = {
-  importL1Manual: (data: any) => api.post('/import/l1/manual', data),
+  importL1Manual: (data: L1ComponentInput) => api.post('/import/l1/manual', data),
   importL1Csv: (formData: FormData) =>
     api.post('/import/l1/csv', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -56,7 +58,7 @@ export const importApi = {
     api.post('/import/l2', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
-  importL3: (data: any) => api.post('/import/l3', data),
+  importL3: (data: L3TermInput) => api.post('/import/l3', data),
   getStatus: () => api.get('/import/status'),
 }
 

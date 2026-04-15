@@ -38,27 +38,29 @@ async def get_nodes():
     LIMIT 500
     '''
 
-    results = neo4j.execute_query(cypher)
+    try:
+        results = neo4j.execute_query(cypher)
 
-    nodes = []
-    for r in results:
-        node_type = r.get('type', 'Unknown')
-        if node_type == 'Component':
-            display_type = 'L1'
-        elif node_type == 'Document':
-            display_type = 'L2'
-        else:
-            display_type = 'L3'
+        nodes = []
+        for r in results:
+            node_type = r.get('type', 'Unknown')
+            if node_type == 'Component':
+                display_type = 'L1'
+            elif node_type == 'Document':
+                display_type = 'L2'
+            else:
+                display_type = 'L3'
 
-        nodes.append(GraphNodeResponse(
-            id=r.get('id', ''),
-            name=r.get('name', ''),
-            type=display_type,
-            properties=r.get('properties', {})
-        ))
+            nodes.append(GraphNodeResponse(
+                id=r.get('id', ''),
+                name=r.get('name', ''),
+                type=display_type,
+                properties=r.get('properties', {})
+            ))
 
-    neo4j.close()
-    return nodes
+        return nodes
+    finally:
+        neo4j.close()
 
 
 @router.get('/graph/node/{node_id}', response_model=GraphNodeResponse)
@@ -78,23 +80,23 @@ async def get_node(node_id: str):
     LIMIT 1
     '''
 
-    results = neo4j.execute_query(cypher, {'node_id': node_id})
+    try:
+        results = neo4j.execute_query(cypher, {'node_id': node_id})
 
-    if not results:
+        if not results:
+            raise HTTPException(status_code=404, detail='Node not found')
+
+        r = results[0]
+        node_type = r.get('type', 'Unknown')
+
+        return GraphNodeResponse(
+            id=r.get('id', ''),
+            name=r.get('name', ''),
+            type=node_type,
+            properties=r.get('properties', {})
+        )
+    finally:
         neo4j.close()
-        raise HTTPException(status_code=404, detail='Node not found')
-
-    r = results[0]
-    node_type = r.get('type', 'Unknown')
-
-    neo4j.close()
-
-    return GraphNodeResponse(
-        id=r.get('id', ''),
-        name=r.get('name', ''),
-        type=node_type,
-        properties=r.get('properties', {})
-    )
 
 
 @router.get('/graph/relationships', response_model=List[GraphEdgeResponse])
@@ -111,18 +113,20 @@ async def get_relationships():
     LIMIT 1000
     '''
 
-    results = neo4j.execute_query(cypher)
+    try:
+        results = neo4j.execute_query(cypher)
 
-    edges = []
-    for r in results:
-        edges.append(GraphEdgeResponse(
-            from_=r.get('from_id', ''),
-            to=r.get('to_id', ''),
-            type=r.get('type', '')
-        ))
+        edges = []
+        for r in results:
+            edges.append(GraphEdgeResponse(
+                from_=r.get('from_id', ''),
+                to=r.get('to_id', ''),
+                type=r.get('type', '')
+            ))
 
-    neo4j.close()
-    return edges
+        return edges
+    finally:
+        neo4j.close()
 
 
 @router.get('/graph/search')
@@ -144,16 +148,18 @@ async def search_nodes(q: str, node_type: Optional[str] = None):
     LIMIT 50
     '''
 
-    results = neo4j.execute_query(cypher, {'q': q})
+    try:
+        results = neo4j.execute_query(cypher, {'q': q})
 
-    nodes = []
-    for r in results:
-        nodes.append(GraphNodeResponse(
-            id=r.get('id', ''),
-            name=r.get('name', ''),
-            type=label,
-            properties=r.get('properties', {})
-        ))
+        nodes = []
+        for r in results:
+            nodes.append(GraphNodeResponse(
+                id=r.get('id', ''),
+                name=r.get('name', ''),
+                type=label,
+                properties=r.get('properties', {})
+            ))
 
-    neo4j.close()
-    return nodes
+        return nodes
+    finally:
+        neo4j.close()
