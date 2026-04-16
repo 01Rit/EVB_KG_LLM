@@ -136,7 +136,7 @@ class EntityExtractor:
   ]
 }}
 
-只返回JSON数组：'''
+  只返回JSON对象：'''
 
         try:
             result = self.llm.generate(prompt)
@@ -151,7 +151,6 @@ class EntityExtractor:
 
     def _parse_json_object(self, response: str) -> Dict[str, Any]:
         """Parse a JSON object from LLM response."""
-        import json
         response = response.strip()
         if response.startswith("```"):
             lines = response.split("\n")
@@ -166,7 +165,8 @@ class EntityExtractor:
             response = "\n".join(json_content)
         try:
             return json.loads(response)
-        except:
+        except Exception as e:
+            logger.warning(f"Failed to parse JSON object: {e}")
             return {}
 
     def _detect_battery_model(self, text: str, filename: str = '') -> Optional[str]:
