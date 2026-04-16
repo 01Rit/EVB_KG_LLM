@@ -13,31 +13,39 @@ class QueryHistoryItem(BaseModel):
     created_at: str
 
 
-@router.post('/disassembly/plan')
-async def create_plan(
-    battery_model: str,
-    context: List[str] = [],
+class DisassemblyPlanRequest(BaseModel):
+    battery_model: str
+    context: List[str] = []
     debug: bool = False
-):
+    mode: str = "local"
+
+
+@router.post('/disassembly/plan')
+async def create_plan(request: DisassemblyPlanRequest):
     from src.graphrag.planner import Planner
     from src.kg.client import Neo4jClient
     from src.utils.llm_client import LLMClient
     from src.config import settings
 
     neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
-    llm = LLMClient(settings.openai_api_key, settings.openai_base_url)
+    llm = LLMClient(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        model=settings.llm_model
+    )
 
     try:
         from src.graphrag.retriever import MultiPathRetriever
 
         retriever = MultiPathRetriever(neo4j, None)
-        planner = Planner(llm, retriever)
+        planner = Planner(llm, retriever, neo4j)
 
         result = await planner.plan(
-            query=f"拆卸{battery_model}型号电池",
-            battery_model=battery_model,
-            context=context,
-            debug=debug
+            query=f"拆卸{request.battery_model}型号电池",
+            battery_model=request.battery_model,
+            context=request.context,
+            mode=request.mode,
+            debug=request.debug
         )
 
         return result
