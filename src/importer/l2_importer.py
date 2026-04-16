@@ -57,11 +57,12 @@ class L2Importer:
         MATCH (d:L2_Document {doc_id: $doc_id})
         UNWIND $entities as ent
         CREATE (e:L2_Entity {
-            id: $id,
+            id: ent.id,
             name: ent.name,
             entity_type: ent.entity_type,
             source_evidence: ent.source_evidence,
             battery_model: ent.battery_model,
+            doc_id: $doc_id,
             node_type: 'L2_Entity'
         })
         CREATE (d)-[:CONTAINS]->(e)
@@ -85,7 +86,7 @@ class L2Importer:
         MATCH (d:L2_Document {doc_id: $doc_id})
         UNWIND $terms as trm
         CREATE (t:L3_Term {
-            id: $id,
+            id: trm.id,
             term_id: trm.term_id,
             name: trm.name,
             definition: trm.definition,
