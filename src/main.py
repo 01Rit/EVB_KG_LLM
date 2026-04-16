@@ -1,4 +1,7 @@
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from fastapi import Request
+from fastapi.middleware.cors import CORSMiddleware
 from src.api.routes import router
 from src.api.middleware import logging_middleware
 from src.api.admin_routes import router as admin_router
@@ -7,8 +10,20 @@ from src.api.query_routes import router as query_router
 from src.api.config_routes import router as config_router
 from src.api.import_routes import router as import_router
 from src.logs import logger
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 app = FastAPI(title='动力电池拆卸知识图谱推理系统', version='1.0.0')
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'],
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
 
 app.middleware('http')(logging_middleware)
 

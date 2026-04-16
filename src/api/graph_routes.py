@@ -31,7 +31,7 @@ async def get_nodes():
     cypher = '''
     MATCH (n)
     WHERE n:Component OR n:Document OR n:Term
-    RETURN n.id as id,
+    RETURN COALESCE(n.id, n.name) as id,
            COALESCE(n.name, n.title, n.term_id) as name,
            labels(n)[0] as type,
            properties(n) as properties
@@ -73,7 +73,7 @@ async def get_node(node_id: str):
     cypher = '''
     MATCH (n)
     WHERE n.id = $node_id OR n.name = $node_id
-    RETURN n.id as id,
+    RETURN COALESCE(n.id, n.name) as id,
            COALESCE(n.name, n.title, n.term_id) as name,
            labels(n)[0] as type,
            properties(n) as properties
@@ -109,7 +109,7 @@ async def get_relationships():
     cypher = '''
     MATCH (a)-[r]->(b)
     WHERE a:Component OR a:Document OR a:Term
-    RETURN a.id as from_id, b.id as to_id, type(r) as type
+    RETURN COALESCE(a.id, a.name) as from_id, COALESCE(b.id, b.name) as to_id, type(r) as type
     LIMIT 1000
     '''
 
@@ -143,8 +143,8 @@ async def search_nodes(q: str, node_type: Optional[str] = None):
 
     cypher = f'''
     MATCH (n:{label})
-    WHERE n.name CONTAINS $q OR n.id CONTAINS $q
-    RETURN n.id as id, n.name as name, '{label}' as type, properties(n) as properties
+    WHERE n.name CONTAINS $q OR COALESCE(n.id, '') CONTAINS $q
+    RETURN COALESCE(n.id, n.name) as id, n.name as name, '{label}' as type, properties(n) as properties
     LIMIT 50
     '''
 

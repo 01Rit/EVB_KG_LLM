@@ -6,17 +6,29 @@ import hashlib
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_MAX_CACHE_SIZE = 1000
+
+
 def compute_args_hash(*args) -> str:
-    return hashlib.md5(str(args).encode()).hexdigest()
+    """Compute MD5 hash of arguments using JSON serialization for reliability."""
+    try:
+        serialized = json.dumps(args, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        serialized = str(args)
+    return hashlib.md5(serialized.encode()).hexdigest()
+
 
 class LLMClient:
     def __init__(self, api_key: str, base_url: str = 'https://api.openai.com/v1',
-                 model: str = 'gpt-4o', temperature: float = 0.1, max_tokens: int = 2000):
+                 model: str = 'gpt-4o', temperature: float = 0.1, max_tokens: int = 2000,
+                 max_cache_size: int = DEFAULT_MAX_CACHE_SIZE):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.max_cache_size = max_cache_size
         self._cache = {}
+        self._cache_order = []
 
     def generate(self, prompt: str, system_message: Optional[str] = None,
                  response_format: Optional[dict] = None) -> str:
@@ -44,11 +56,20 @@ class LLMClient:
         try:
             response = self.client.chat.completions.create(**kwargs)
             result = response.choices[0].message.content
-            self._cache[cache_key] = result
+            self._add_to_cache(cache_key, result)
             return result
         except Exception as e:
             logger.error(f'LLM generation failed: {e}')
             raise
+
+    def _add_to_cache(self, key: str, value: str) -> None:
+        """Add item to cache with LRU eviction."""
+        if len(self._cache) >= self.max_cache_size:
+            if self._cache_order:
+                oldest_key = self._cache_order.pop(0)
+                self._cache.pop(oldest_key, None)
+        self._cache[key] = value
+        self._cache_order.append(key)
 
     def generate_json(self, prompt: str, schema: list[str]) -> dict:
         response_format = {'type': 'json_object', 'schema': {'properties': {}}}

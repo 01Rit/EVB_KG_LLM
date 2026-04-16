@@ -14,8 +14,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 neo4j_client = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
-milvus_client = MilvusClient(settings.milvus_host, settings.milvus_port) if hasattr(settings, 'milvus_host') else None
-llm_client = LLMClient(settings.openai_api_key, settings.openai_base_url, settings.model, settings.temperature, settings.max_tokens)
+try:
+    milvus_client = MilvusClient(settings.milvus_host, settings.milvus_port) if settings.milvus_host else None
+except Exception:
+    milvus_client = None
+llm_client = LLMClient(
+    api_key=settings.openai_api_key,
+    base_url=settings.openai_base_url,
+    model=settings.llm_model,
+    temperature=settings.temperature,
+    max_tokens=settings.max_tokens
+)
 
 retriever = MultiPathRetriever(neo4j_client, milvus_client)
 planner = Planner(llm_client, retriever)
@@ -84,7 +93,11 @@ async def allocate_tasks(request: AllocateRequest):
     from src.config import settings
 
     sequence = DisassemblySequence(**request.sequence)
-    llm = LLMClient(settings.openai_api_key, settings.openai_base_url)
+    llm = LLMClient(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        model=settings.llm_model
+    )
     allocator = HumanRobotAllocator(llm)
     result = allocator.allocate(sequence)
 

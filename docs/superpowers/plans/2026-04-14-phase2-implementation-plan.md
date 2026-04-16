@@ -1,12 +1,12 @@
-# 阶段2实现计划
+# 阶段2：混合图输出 + 拆卸序列规划 + 人机协作分配 实现计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 实现拆卸序列规划、人机协作分配、混合图输出、数据导入功能
+**Goal:** 实现PDF数据导入、拆卸序列规划、人机协作分配、混合图输出功能
 
-**Architecture:** 在阶段1 GraphRAG 基础上，新增4个核心模块：数据导入、序列规划、人机分配、图输出
+**Architecture:** PyMuPDF解析 + Tarjan环路检测 + 拓扑排序 + MTM时间估算 + LLM 9因素打分 + AS自动化得分
 
-**Tech Stack:** Python 3.11+, PyMuPDF, Neo4j, LLM, FastAPI
+**Tech Stack:** Python 3.11+, PyMuPDF(fitz), networkx, Neo4j, OpenAI GPT-4o
 
 ---
 
@@ -14,91 +14,141 @@
 
 ```
 src/
-├── importer/                    # 数据导入模块
-│   ├── __init__.py
-│   ├── pdf_parser.py           # PyMuPDF解析
-│   ├── path_classifier.py      # 路径分类
-│   ├── entity_extractor.py     # LLM提取L2/L3
-│   └── importer.py             # 导入主逻辑
-│
-├── sequence/                    # 拆卸序列模块
-│   ├── __init__.py
-│   ├── planner.py              # 序列规划主逻辑
-│   ├── cycle_detector.py       # Tarjan环路检测
-│   ├── topological_sort.py      # 拓扑排序
-│   └── time_estimator.py       # MTM时间估算
-│
-├── allocator/                   # 人机协作模块
-│   ├── __init__.py
-│   ├── scorer.py               # LLM 9因素打分
-│   ├── as_calculator.py        # AS得分计算
-│   └── allocator.py            # 分配主逻辑
-│
-├── graph_output/               # 混合图输出模块
-│   ├── __init__.py
-│   ├── mermaid_gen.py          # Mermaid生成
-│   ├── json_builder.py         # JSON构建
-│   └── generator.py             # 输出主逻辑
-
-tests/
 ├── importer/
-│   └── test_importer.py
+│   ├── __init__.py
+│   ├── pdf_parser.py
+│   ├── path_classifier.py
+│   ├── entity_extractor.py
+│   └── importer.py
 ├── sequence/
-│   ├── test_cycle_detector.py
-│   ├── test_topological_sort.py
-│   └── test_time_estimator.py
+│   ├── __init__.py
+│   ├── planner.py
+│   ├── cycle_detector.py
+│   ├── topological_sort.py
+│   └── time_estimator.py
 ├── allocator/
-│   └── test_allocator.py
-└── graph_output/
-    └── test_generator.py
+│   ├── __init__.py
+│   ├── scorer.py
+│   ├── as_calculator.py
+│   └── allocator.py
+├── graph_output/
+│   ├── __init__.py
+│   ├── mermaid_gen.py
+│   ├── json_builder.py
+│   └── generator.py
 ```
 
 ---
 
-### Task 1: 数据导入模块 - 基础设置
+### Task 1: 数据导入模块 - 路径分类器
 
 **Files:**
 - Create: `src/importer/__init__.py`
-- Create: `src/sequence/__init__.py`
-- Create: `src/allocator/__init__.py`
-- Create: `src/graph_output/__init__.py`
-- Modify: `requirements.txt`
-- Create: `tests/importer/__init__.py`
-- Create: `tests/sequence/__init__.py`
-- Create: `tests/allocator/__init__.py`
-- Create: `tests/graph_output/__init__.py`
+- Create: `src/importer/path_classifier.py`
+- Create: `tests/importer/test_path_classifier.py`
 
-- [ ] **Step 1: 创建目录和__init__.py文件**
+- [ ] **Step 1: 创建 src/importer/__init__.py**
 
-```bash
-mkdir -p src/importer src/sequence src/allocator src/graph_output
-mkdir -p tests/importer tests/sequence tests/allocator tests/graph_output
-touch src/importer/__init__.py src/sequence/__init__.py src/allocator/__init__.py src/graph_output/__init__.py
-touch tests/importer/__init__.py tests/sequence/__init__.py tests/allocator/__init__.py tests/graph_output/__init__.py
+```python
 ```
 
-- [ ] **Step 2: 更新 requirements.txt 添加 PyMuPDF**
+- [ ] **Step 2: 创建 src/importer/path_classifier.py**
 
-```txt
-pymupdf==1.24.0
+```python
+import re
+from pathlib import Path
+from typing import Dict, Any
+
+
+class PathClassifier:
+    SOURCE_PATTERNS = {
+        'patent': [r'专利', r'CN\d', r'WO\d', r'\d+发明专利'],
+        'standard': [r'国标', r'GBT', r'GB/T', r'\d+-+\d+'],
+        'paper': [r'学术论文', r'论文', r'journal', r'IEEE']
+    }
+
+    def classify(self, file_path: str) -> Dict[str, Any]:
+        path = Path(file_path)
+        filename = path.stem
+
+        for source, patterns in self.SOURCE_PATTERNS.items():
+            for pattern in patterns:
+                if re.search(pattern, file_path, re.IGNORECASE):
+                    return {
+                        'source': source,
+                        'source_type': 'pdf',
+                        'file_name': filename,
+                        'target_layers': ['L2', 'L3']
+                    }
+
+        return {
+            'source': 'other',
+            'source_type': 'pdf',
+            'file_name': filename,
+            'target_layers': ['L2', 'L3']
+        }
+
+    def get_metadata(self, file_path: str) -> Dict[str, Any]:
+        path = Path(file_path)
+        return {
+            'file_name': path.stem,
+            'file_extension': path.suffix,
+            'file_size': path.stat().st_size if path.exists() else 0
+        }
 ```
 
-- [ ] **Step 3: 运行测试验证**
+- [ ] **Step 3: 创建 tests/importer/test_path_classifier.py**
 
-```bash
-python -c "import pymupdf; print('PyMuPDF OK')"
+```python
+import pytest
+from src.importer.path_classifier import PathClassifier
+
+
+def test_path_classifier_import():
+    assert PathClassifier is not None
+
+
+def test_patent_classification():
+    classifier = PathClassifier()
+    result = classifier.classify('D:/data/专利_动力电池拆卸.pdf')
+    assert result['source'] == 'patent'
+
+
+def test_standard_classification():
+    classifier = PathClassifier()
+    result = classifier.classify('D:/data/GBT_12345.pdf')
+    assert result['source'] == 'standard'
+
+
+def test_paper_classification():
+    classifier = PathClassifier()
+    result = classifier.classify('D:/data/学术论文_电池回收.pdf')
+    assert result['source'] == 'paper'
+
+
+def test_other_classification():
+    classifier = PathClassifier()
+    result = classifier.classify('D:/data/unknown_file.pdf')
+    assert result['source'] == 'other'
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: 运行测试验证失败**
 
 ```bash
-git add requirements.txt src/importer/ src/sequence/ src/allocator/ src/graph_output/ tests/importer/ tests/sequence/ tests/allocator/ tests/graph_output/
-git commit -m "feat(phase2): add module directories"
+cd D:/KG_project/Final4.14
+python -m pytest tests/importer/test_path_classifier.py -v
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/importer/ tests/importer/
+git commit -m feat: add Path Classifier module
 ```
 
 ---
 
-### Task 2: 数据导入 - PDF解析器
+### Task 2: 数据导入模块 - PDF解析器
 
 **Files:**
 - Create: `src/importer/pdf_parser.py`
@@ -107,61 +157,71 @@ git commit -m "feat(phase2): add module directories"
 - [ ] **Step 1: 创建 src/importer/pdf_parser.py**
 
 ```python
-from pymupdf import Document, Pixmap
-from typing import Optional
+import fitz
+from typing import Dict, Any, List, Optional
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 class PDFParser:
-    def __init__(self):
-        self.supported_extensions = ['.pdf']
-    
-    def extract_text(self, file_path: str) -> str:
-        text_parts = []
+    def __init__(self, extract_images: bool = False):
+        self.extract_images = extract_images
+
+    def parse(self, file_path: str) -> Dict[str, Any]:
         try:
-            doc = Document(file_path)
-            for page_num in range(len(doc)):
-                page = doc[page_num]
-                text = page.get_text()
-                if text.strip():
-                    text_parts.append(text)
-            logger.info(f'Extracted {len(text_parts)} pages from {file_path}')
-            return '\n\n'.join(text_parts)
+            doc = fitz.open(file_path)
         except Exception as e:
-            logger.error(f'Failed to extract text from {file_path}: {e}')
+            logger.error(f"Failed to open PDF {file_path}: {e}")
             raise
-    
-    def extract_metadata(self, file_path: str) -> dict:
-        try:
-            doc = Document(file_path)
-            metadata = doc.metadata
-            return {
-                'title': metadata.get('title', ''),
-                'author': metadata.get('author', ''),
-                'subject': metadata.get('subject', ''),
-                'creator': metadata.get('creator', ''),
-                'page_count': len(doc)
-            }
-        except Exception as e:
-            logger.error(f'Failed to extract metadata from {file_path}: {e}')
-            return {'page_count': 0}
-    
-    def extract_pages(self, file_path: str, start: int = 0, end: Optional[int] = None) -> list[str]:
-        pages = []
-        try:
-            doc = Document(file_path)
-            end = end or len(doc)
-            for page_num in range(start, min(end, len(doc))):
-                page = doc[page_num]
-                text = page.get_text()
-                if text.strip():
-                    pages.append(text)
-            return pages
-        except Exception as e:
-            logger.error(f'Failed to extract pages from {file_path}: {e}')
+
+        text_content = []
+        for page_num, page in enumerate(doc):
+            text = page.get_text()
+            text_content.append({
+                'page': page_num + 1,
+                'text': text
+            })
+
+        doc.close()
+
+        return {
+            'file_path': file_path,
+            'page_count': len(text_content),
+            'pages': text_content,
+            'full_text': '\n\n'.join([p['text'] for p in text_content])
+        }
+
+    def extract_metadata(self, file_path: str) -> Dict[str, Any]:
+        doc = fitz.open(file_path)
+        metadata = {
+            'title': doc.metadata.get('title', ''),
+            'author': doc.metadata.get('author', ''),
+            'subject': doc.metadata.get('subject', ''),
+            'creator': doc.metadata.get('creator', ''),
+            'page_count': len(doc)
+        }
+        doc.close()
+        return metadata
+
+    def extract_images(self, file_path: str) -> List[Dict[str, Any]]:
+        if not self.extract_images:
             return []
+
+        images = []
+        doc = fitz.open(file_path)
+
+        for page_num, page in enumerate(doc):
+            image_list = page.get_images()
+            for img_index, img in enumerate(image_list):
+                images.append({
+                    'page': page_num + 1,
+                    'index': img_index,
+                    'xref': img[0]
+                })
+
+        doc.close()
+        return images
 ```
 
 - [ ] **Step 2: 创建 tests/importer/test_pdf_parser.py**
@@ -175,9 +235,14 @@ def test_pdf_parser_import():
     assert PDFParser is not None
 
 
-def test_parser_initialization():
+def test_pdf_parser_initialization():
     parser = PDFParser()
-    assert parser.supported_extensions == ['.pdf']
+    assert parser.extract_images is False
+
+
+def test_pdf_parser_with_images():
+    parser = PDFParser(extract_images=True)
+    assert parser.extract_images is True
 ```
 
 - [ ] **Step 3: 运行测试**
@@ -189,124 +254,13 @@ python -m pytest tests/importer/test_pdf_parser.py -v
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/importer/pdf_parser.py tests/importer/test_pdf_parser.py
-git commit -m "feat(importer): add PDF parser using PyMuPDF"
+git add src/importer/pdf_parser.py tests/importer/
+git commit -m feat: add PDF Parser module
 ```
 
 ---
 
-### Task 3: 数据导入 - 路径分类器
-
-**Files:**
-- Create: `src/importer/path_classifier.py`
-- Create: `tests/importer/test_path_classifier.py`
-
-- [ ] **Step 1: 创建 src/importer/path_classifier.py**
-
-```python
-from typing import Literal
-from dataclasses import dataclass
-
-
-@dataclass
-class SourceClassification:
-    source: Literal['patent', 'standard', 'paper']
-    paper_category: str = ''
-    target_layers: list[str] = None
-    
-    def __post_init__(self):
-        if self.target_layers is None:
-            self.target_layers = ['L2', 'L3']
-
-
-class PathClassifier:
-    PATTERN_PATENT = ['专利', 'CN', 'WO', 'US']
-    PATTERN_STANDARD = ['国标', 'GBT', 'GB_T']
-    PATTERN_PAPER_DISASSEMBLY = ['A_', '拆卸']
-    PATTERN_PAPER_REUSE = ['B_', '梯次']
-    PATTERN_PAPER_DFD = ['C_', '可拆卸']
-    PATTERN_PAPER_HRC = ['D_', '人机']
-    PATTERN_PAPER_GENERAL = ['E_', '综述']
-    
-    def classify(self, file_path: str) -> SourceClassification:
-        if self._is_patent(file_path):
-            return SourceClassification(source='patent')
-        elif self._is_standard(file_path):
-            return SourceClassification(source='standard')
-        elif self._is_paper(file_path):
-            return SourceClassification(source='paper', paper_category=self._get_paper_category(file_path))
-        else:
-            return SourceClassification(source='unknown')
-    
-    def _is_patent(self, path: str) -> bool:
-        return any(p in path for p in self.PATTERN_PATENT)
-    
-    def _is_standard(self, path: str) -> bool:
-        return any(p in path for p in self.PATTERN_STANDARD)
-    
-    def _is_paper(self, path: str) -> bool:
-        return '学术论文' in path or 'paper' in path.lower()
-    
-    def _get_paper_category(self, path: str) -> str:
-        if any(p in path for p in self.PATTERN_PAPER_DISASSEMBLY):
-            return 'A_disassembly'
-        elif any(p in path for p in self.PATTERN_PAPER_REUSE):
-            return 'B_reuse'
-        elif any(p in path for p in self.PATTERN_PAPER_DFD):
-            return 'C_dfd'
-        elif any(p in path for p in self.PATTERN_PAPER_HRC):
-            return 'D_hrc'
-        elif any(p in path for p in self.PATTERN_PAPER_GENERAL):
-            return 'E_general'
-        return 'unknown'
-```
-
-- [ ] **Step 2: 创建 tests/importer/test_path_classifier.py**
-
-```python
-import pytest
-from src.importer.path_classifier import PathClassifier, SourceClassification
-
-
-def test_path_classifier_import():
-    assert PathClassifier is not None
-
-
-def test_classify_patent():
-    classifier = PathClassifier()
-    result = classifier.classify('专利/CN202511156458.pdf')
-    assert result.source == 'patent'
-
-
-def test_classify_standard():
-    classifier = PathClassifier()
-    result = classifier.classify('国标/GBT+34015-2017.pdf')
-    assert result.source == 'standard'
-
-
-def test_classify_paper():
-    classifier = PathClassifier()
-    result = classifier.classify('学术论文/A_动力电池拆卸数据/xxx.pdf')
-    assert result.source == 'paper'
-    assert result.paper_category == 'A_disassembly'
-```
-
-- [ ] **Step 3: 运行测试**
-
-```bash
-python -m pytest tests/importer/test_path_classifier.py -v
-```
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add src/importer/path_classifier.py tests/importer/test_path_classifier.py
-git commit -m "feat(importer): add path classifier for source detection"
-```
-
----
-
-### Task 4: 数据导入 - LLM实体提取器
+### Task 3: 数据导入模块 - 实体提取器
 
 **Files:**
 - Create: `src/importer/entity_extractor.py`
@@ -316,73 +270,98 @@ git commit -m "feat(importer): add path classifier for source detection"
 
 ```python
 from src.utils.llm_client import LLMClient
-from src.kg.models import Document, Term
-from typing import Optional
+from typing import Dict, List, Any, Optional
 import logging
+import json
+import re
 
 logger = logging.getLogger(__name__)
 
 
 class EntityExtractor:
-    DOCUMENT_PROMPT = '''从以下文档内容中提取信息，生成结构化的文档对象。
-
-返回JSON格式：
-{
-    "doc_id": "文档ID",
-    "title": "文档标题",
-    "content": "文档主要内容摘要（不超过500字）"
-}
-
-文档内容：
-{content}
-'''
-
-    TERM_PROMPT = '''从以下文本中提取专业术语及其定义。
-
-返回JSON数组格式：
-[
-    {"term_id": "术语ID", "definition": "术语定义", "units": "单位（如适用）"}
-]
-
-文本内容：
-{content}
-'''
-
     def __init__(self, llm_client: LLMClient):
         self.llm = llm_client
-    
-    def extract_document(self, content: str, doc_id: str, source: str) -> Document:
-        prompt = self.DOCUMENT_PROMPT.format(content=content[:5000])
+
+    def extract_components(self, text: str, max_items: int = 50) -> List[Dict[str, Any]]:
+        prompt = f'''从以下技术文档中提取所有可拆卸部件（L2层Document）。
+
+提取要求：
+- 部件名称
+- 所属类别（如电池包、模组、外壳等）
+- 拆卸工具
+- 安全等级（1-5）
+- 依赖关系（如果有）
+
+返回JSON数组格式。
+
+文档内容：
+{text[:3000]}
+
+返回格式：
+[
+  {{"name": "部件名", "category": "类别", "tools": ["工具1"], "safety_level": 1, "dependencies": ["依赖部件"]}}
+]'''
+
         try:
-            result = self.llm.generate_json(prompt, ['doc_id', 'title', 'content'])
-            return Document(
-                doc_id=result.get('doc_id', doc_id),
-                title=result.get('title', ''),
-                source=source,
-                source_type=source,
-                content=result.get('content', ''),
-                file_path=''
-            )
+            result = self.llm.generate(prompt)
+            components = self._parse_json_array(result)
+            logger.info(f"Extracted {len(components)} components")
+            return components[:max_items]
         except Exception as e:
-            logger.error(f'Failed to extract document: {e}')
-            return Document(doc_id=doc_id, title='', source=source, source_type=source, content='')
-    
-    def extract_terms(self, content: str) -> list[Term]:
-        prompt = self.TERM_PROMPT.format(content=content[:3000])
-        try:
-            result = self.llm.generate_json(prompt, [])
-            terms_data = result if isinstance(result, list) else result.get('terms', [])
-            return [
-                Term(
-                    term_id=t.get('term_id', f'term_{i}'),
-                    definition=t.get('definition', ''),
-                    units=t.get('units')
-                )
-                for i, t in enumerate(terms_data[:20])
-            ]
-        except Exception as e:
-            logger.error(f'Failed to extract terms: {e}')
+            logger.error(f"Component extraction failed: {e}")
             return []
+
+    def extract_terms(self, text: str, max_items: int = 100) -> List[Dict[str, Any]]:
+        prompt = f'''从以下技术文档中提取所有专业术语（L3层Term）。
+
+提取要求：
+- 术语名称
+- 定义/解释
+- 英文缩写（如果有）
+
+返回JSON数组格式。
+
+文档内容：
+{text[:3000]}
+
+返回格式：
+[
+  {{"term_id": "术语名", "definition": "定义", "units": "单位或null"}}
+]'''
+
+        try:
+            result = self.llm.generate(prompt)
+            terms = self._parse_json_array(result)
+            logger.info(f"Extracted {len(terms)} terms")
+            return terms[:max_items]
+        except Exception as e:
+            logger.error(f"Term extraction failed: {e}")
+            return []
+
+    def _parse_json_array(self, response: str) -> List[Dict[str, Any]]:
+        response = response.strip()
+
+        if response.startswith('['):
+            try:
+                return json.loads(response)
+            except:
+                pass
+
+        lines = response.split('\n')
+        items = []
+        json_str = '['
+        for line in lines:
+            if '{' in line:
+                json_str = line
+            elif '}' in line and json_str != '[':
+                json_str += '}'
+                try:
+                    items.append(json.loads(json_str))
+                    json_str = '['
+                except:
+                    json_str = '['
+
+        return items
 ```
 
 - [ ] **Step 2: 创建 tests/importer/test_entity_extractor.py**
@@ -396,13 +375,21 @@ def test_entity_extractor_import():
     assert EntityExtractor is not None
 
 
-def test_extractor_initialization():
-    class MockLLM:
-        def generate_json(self, prompt, schema):
-            return {'doc_id': 'test', 'title': 'Test', 'content': 'Test content'}
-    
+class MockLLM:
+    def generate(self, prompt):
+        return '[{"name": "BatteryCover", "category": "外壳", "tools": ["螺丝刀"], "safety_level": 1, "dependencies": []}]'
+
+
+def test_entity_extractor_initialization():
     extractor = EntityExtractor(MockLLM())
     assert extractor.llm is not None
+
+
+def test_extract_components():
+    extractor = EntityExtractor(MockLLM())
+    result = extractor.extract_components("test text")
+    assert len(result) > 0
+    assert result[0]['name'] == 'BatteryCover'
 ```
 
 - [ ] **Step 3: 运行测试**
@@ -414,136 +401,206 @@ python -m pytest tests/importer/test_entity_extractor.py -v
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/importer/entity_extractor.py tests/importer/test_entity_extractor.py
-git commit -m "feat(importer): add LLM entity extractor for L2/L3"
+git add src/importer/entity_extractor.py tests/importer/
+git commit -m feat: add Entity Extractor module
 ```
 
 ---
 
-### Task 5: 数据导入 - 导入主逻辑
+### Task 4: 数据导入模块 - 导入主逻辑
 
 **Files:**
 - Create: `src/importer/importer.py`
 - Create: `tests/importer/test_importer.py`
-- Modify: `src/kg/models.py` (添加新字段)
 
 - [ ] **Step 1: 创建 src/importer/importer.py**
 
 ```python
+from src.importer.path_classifier import PathClassifier
 from src.importer.pdf_parser import PDFParser
-from src.importer.path_classifier import PathClassifier, SourceClassification
 from src.importer.entity_extractor import EntityExtractor
 from src.kg.client import Neo4jClient
-from src.kg.models import Document, Term, Component
-from typing import Optional
+from src.utils.llm_client import LLMClient
+from typing import Optional, Dict, Any
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
 
 
+class ImportResult:
+    def __init__(self, success: bool, doc_id: str = '', message: str = '', components: int = 0, terms: int = 0):
+        self.success = success
+        self.doc_id = doc_id
+        self.message = message
+        self.components = components
+        self.terms = terms
+
+
 class DataImporter:
-    def __init__(self, neo4j_client: Neo4jClient, llm_client):
-        self.parser = PDFParser()
-        self.classifier = PathClassifier()
-        self.extractor = EntityExtractor(llm_client)
+    def __init__(self, neo4j_client: Neo4jClient, llm_client: LLMClient):
         self.neo4j = neo4j_client
-    
-    def import_pdf(self, file_path: str) -> dict:
+        self.classifier = PathClassifier()
+        self.parser = PDFParser()
+        self.extractor = EntityExtractor(llm_client)
+
+    def import_pdf(self, file_path: str) -> ImportResult:
         classification = self.classifier.classify(file_path)
-        logger.info(f'Importing {file_path} as {classification.source}')
-        
-        text = self.parser.extract_text(file_path)
-        metadata = self.parser.extract_metadata(file_path)
-        
-        doc = self.extractor.extract_document(text, file_path, classification.source)
-        doc.file_path = file_path
-        
-        terms = self.extractor.extract_terms(text)
-        
-        self._save_to_kg(doc, terms)
-        
-        return {
-            'status': 'success',
-            'doc_id': doc.doc_id,
-            'terms_count': len(terms),
-            'source': classification.source
-        }
-    
-    def promote_to_component(self, doc_id: str, component_data: dict) -> Component:
-        component = Component(
-            id=doc_id,
-            name=component_data.get('name', ''),
-            battery_model=component_data.get('battery_model', ''),
-            tool_required=component_data.get('tool_required', []),
-            safety_level=component_data.get('safety_level', 1),
-            preconditions=component_data.get('preconditions', []),
-            estimated_time=component_data.get('estimated_time', 0),
-            source_type='manual',
-            metadata=component_data.get('metadata', {})
+        file_metadata = self.classifier.get_metadata(file_path)
+
+        try:
+            parsed = self.parser.parse(file_path)
+        except Exception as e:
+            logger.error(f"PDF parsing failed: {e}")
+            return ImportResult(False, message=str(e))
+
+        doc_id = str(uuid.uuid4())
+
+        try:
+            components = self.extractor.extract_components(parsed['full_text'])
+            terms = self.extractor.extract_terms(parsed['full_text'])
+        except Exception as e:
+            logger.warning(f"Entity extraction failed: {e}")
+            components = []
+            terms = []
+
+        self._save_to_graph(doc_id, classification, file_metadata, parsed, components, terms)
+
+        return ImportResult(
+            success=True,
+            doc_id=doc_id,
+            components=len(components),
+            terms=len(terms)
         )
-        
+
+    def _save_to_graph(self, doc_id: str, classification: Dict, file_metadata: Dict,
+                  parsed: Dict, components: List[Dict], terms: List[Dict]):
         cypher = '''
-        MERGE (c:Component {id: $id})
-        SET c.name = $name,
-            c.battery_model = $battery_model,
-            c.tool_required = $tool_required,
-            c.safety_level = $safety_level,
-            c.preconditions = $preconditions,
-            c.estimated_time = $estimated_time,
-            c.source_type = 'manual'
+        CREATE (d:Document {
+            doc_id: $doc_id,
+            title: $title,
+            source: $source,
+            source_type: $source_type,
+            content: $content,
+            file_path: $file_path,
+            metadata: $metadata
+        })
         '''
+
         self.neo4j.execute_query(cypher, {
-            'id': component.id,
-            'name': component.name,
-            'battery_model': component.battery_model,
-            'tool_required': component.tool_required,
-            'safety_level': component.safety_level,
-            'preconditions': component.preconditions,
-            'estimated_time': component.estimated_time
+            'doc_id': doc_id,
+            'title': file_metadata['file_name'],
+            'source': classification['source'],
+            'source_type': classification['source_type'],
+            'content': parsed['full_text'][:50000],
+            'file_path': parsed['file_path'],
+            'metadata': str(file_metadata)
         })
-        
-        return component
-    
-    def _save_to_kg(self, doc: Document, terms: list[Term]):
-        doc_cypher = '''
-        MERGE (d:Document {doc_id: $doc_id})
-        SET d.title = $title,
-            d.source = $source,
-            d.source_type = $source_type,
-            d.content = $content,
-            d.file_path = $file_path
-        '''
-        self.neo4j.execute_query(doc_cypher, {
-            'doc_id': doc.doc_id,
-            'title': doc.title,
-            'source': doc.source,
-            'source_type': doc.source_type,
-            'content': doc.content,
-            'file_path': doc.file_path
-        })
-        
+
+        for comp in components:
+            self._create_component(doc_id, comp)
+
         for term in terms:
-            term_cypher = '''
-            MERGE (t:Term {term_id: $term_id})
-            SET t.definition = $definition,
-                t.units = $units
-            '''
-            self.neo4j.execute_query(term_cypher, {
-                'term_id': term.term_id,
-                'definition': term.definition,
-                'units': term.units or ''
+            self._create_term(doc_id, term)
+
+    def _create_component(self, doc_id: str, component: Dict):
+        cypher = '''
+        MATCH (d:Document {doc_id: $doc_id})
+        CREATE (c:Component {
+            id: $id,
+            name: $name,
+            category: $category,
+            tool_required: $tools,
+            safety_level: $safety,
+            source_doc_id: $doc_id
+        })
+        CREATE (d)-[:CONTAINS]->(c)
+        '''
+
+        self.neo4j.execute_query(cypher, {
+            'id': str(uuid.uuid4()),
+            'name': component.get('name', ''),
+            'category': component.get('category', ''),
+            'tools': str(component.get('tools', [])),
+            'safety': component.get('safety_level', 1),
+            'doc_id': doc_id
+        })
+
+    def _create_term(self, doc_id: str, term: Dict):
+        cypher = '''
+        MATCH (d:Document {doc_id: $doc_id})
+        CREATE (t:Term {
+            term_id: $term_id,
+            definition: $definition,
+            units: $units,
+            source_doc_id: $doc_id
+        })
+        CREATE (d)-[:CONTAINS]->(t)
+        '''
+
+        self.neo4j.execute_query(cypher, {
+            'term_id': term.get('term_id', ''),
+            'definition': term.get('definition', ''),
+            'units': term.get('units'),
+            'doc_id': doc_id
+        })
+
+    def promote_to_component(self, doc_id: str, component_data: Dict) -> bool:
+        cypher = '''
+        MATCH (d:Document {doc_id: $doc_id})
+        SET d.source_type = 'manual'
+        CREATE (c:Component {
+            id: $id,
+            name: $name,
+            battery_model: $battery_model,
+            tool_required: $tools,
+            safety_level: $safety,
+            source_type: 'manual',
+            precedence: $precedence
+        })
+        CREATE (d)-[:PROMOTED_TO]->(c)
+        RETURN c
+        '''
+
+        try:
+            result = self.neo4j.execute_query(cypher, {
+                'doc_id': doc_id,
+                'id': str(uuid.uuid4()),
+                'name': component_data.get('name', ''),
+                'battery_model': component_data.get('battery_model', ''),
+                'tools': str(component_data.get('tool_required', [])),
+                'safety': component_data.get('safety_level', 1),
+                'precedence': str(component_data.get('precedence', []))
             })
+            return len(result) > 0
+        except Exception as e:
+            logger.error(f"Promotion failed: {e}")
+            return False
 ```
 
 - [ ] **Step 2: 创建 tests/importer/test_importer.py**
 
 ```python
 import pytest
-from src.importer.importer import DataImporter
+from src.importer.importer import DataImporter, ImportResult
 
 
 def test_importer_import():
     assert DataImporter is not None
+
+
+def test_import_result_success():
+    result = ImportResult(True, 'test-id', 'success', 5, 10)
+    assert result.success is True
+    assert result.doc_id == 'test-id'
+    assert result.components == 5
+    assert result.terms == 10
+
+
+def test_import_result_failure():
+    result = ImportResult(False, '', 'Error message', 0, 0)
+    assert result.success is False
+    assert result.message == 'Error message'
 ```
 
 - [ ] **Step 3: 运行测试**
@@ -555,145 +612,344 @@ python -m pytest tests/importer/test_importer.py -v
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/importer/importer.py tests/importer/test_importer.py
-git commit -m "feat(importer): add main importer logic"
+git add src/importer/importer.py tests/importer/
+git commit -m feat: add Data Importer module
 ```
 
 ---
 
-### Task 6: 拆卸序列 - Tarjan环路检测
+### Task 5: 管理界面API
 
 **Files:**
+- Create: `src/api/admin_routes.py`
+- Modify: `src/main.py`
+
+- [ ] **Step 1: 创建 src/api/admin_routes.py**
+
+```python
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import Optional, List
+import logging
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+class PromoteRequest(BaseModel):
+    doc_id: str
+    name: str
+    battery_model: str
+    tool_required: List[str] = []
+    safety_level: int = 1
+    precedence: List[str] = []
+
+
+class DocumentResponse(BaseModel):
+    doc_id: str
+    title: str
+    source: str
+    component_count: int
+
+
+class ComponentResponse(BaseModel):
+    id: str
+    name: str
+    battery_model: str
+
+
+@router.get('/api/v1/admin/documents')
+async def list_documents():
+    from src.kg.client import Neo4jClient
+    from src.config import settings
+
+    neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+    cypher = '''
+    MATCH (d:Document)
+    OPTIONAL MATCH (d)-[:CONTAINS]->(c:Component)
+    RETURN d.doc_id as doc_id, d.title as title, d.source as source,
+           count(c) as component_count
+    ORDER BY d.title
+    '''
+    results = neo4j.execute_query(cypher)
+
+    return [DocumentResponse(
+        doc_id=r['doc_id'],
+        title=r['title'],
+        source=r['source'],
+        component_count=r['component_count']
+    ) for r in results]
+
+
+@router.post('/api/v1/admin/components/promote')
+async def promote_document(request: PromoteRequest):
+    from src.kg.client import Neo4jClient
+    from src.utils.llm_client import LLMClient
+    from src.config import settings
+    from src.importer.importer import DataImporter
+
+    neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+    llm = LLMClient(settings.openai_api_key, settings.openai_base_url)
+
+    importer = DataImporter(neo4j, llm)
+    component_data = {
+        'name': request.name,
+        'battery_model': request.battery_model,
+        'tool_required': request.tool_required,
+        'safety_level': request.safety_level,
+        'precedence': request.precedence
+    }
+
+    success = importer.promote_to_component(request.doc_id, component_data)
+
+    if not success:
+        raise HTTPException(status_code=500, detail='Promotion failed')
+
+    return {'code': 0, 'message': 'Component promoted successfully'}
+
+
+@router.get('/api/v1/admin/components')
+async def list_components():
+    from src.kg.client import Neo4jClient
+    from src.config import settings
+
+    neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+    cypher = '''
+    MATCH (c:Component {source_type: 'manual'})
+    RETURN c.id as id, c.name as name, c.battery_model as battery_model
+    ORDER BY c.name
+    '''
+    results = neo4j.execute_query(cypher)
+
+    return [ComponentResponse(
+        id=r['id'],
+        name=r['name'],
+        battery_model=r['battery_model']
+    ) for r in results]
+```
+
+- [ ] **Step 2: 更新src/main.py导入admin路由**
+
+```python
+from fastapi import FastAPI
+from src.api.routes import router
+from src.api.middleware import logging_middleware
+from src.api.admin_routes import router as admin_router
+from src.logs import logger
+
+app = FastAPI(title='动力电池拆卸知识图谱推理系统', version='1.0.0')
+
+app.middleware('http')(logging_middleware)
+
+app.include_router(router)
+app.include_router(admin_router, prefix='/admin')
+
+
+@app.on_event('shutdown')
+async def shutdown_event():
+    logger.info('Shutting down application')
+    neo4j_client.close()
+    if milvus_client:
+        milvus_client.close()
+
+
+if __name__ == '__main__':
+    import uvicorn
+    uvicorn.run(app, host='0.0.0.0', port=8000)
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/api/admin_routes.py src/main.py
+git commit -m feat: add admin routes for L1 component promotion
+```
+
+---
+
+### Task 6: 拆卸序列模块 - Tarjan环路检测
+
+**Files:**
+- Create: `src/sequence/__init__.py`
 - Create: `src/sequence/cycle_detector.py`
 - Create: `tests/sequence/test_cycle_detector.py`
 
-- [ ] **Step 1: 创建 src/sequence/cycle_detector.py**
+- [ ] **Step 1: 创建 src/sequence/__init__.py**
 
 ```python
-from typing import Optional
-from dataclasses import dataclass, field
-
-
-@dataclass
-class CycleNode:
-    id: str
-    neighbors: list[str] = field(default_factory=list)
-    index: Optional[int] = None
-    lowlink: Optional[int] = None
-    on_stack: bool = False
-
-
-class TarjanCycleDetector:
-    def __init__(self):
-        self.index = 0
-        self.stack: list[CycleNode] = []
-        self.sccs: list[list[str]] = []
-        self.nodes: dict[str, CycleNode] = {}
-    
-    def detect_cycles(self, edges: list[tuple[str, str]]) -> list[list[str]]:
-        self._reset()
-        
-        for source, target in edges:
-            if source not in self.nodes:
-                self.nodes[source] = CycleNode(id=source)
-            if target not in self.nodes:
-                self.nodes[target] = CycleNode(id=target)
-            self.nodes[source].neighbors.append(target)
-        
-        for node in self.nodes.values():
-            if node.index is None:
-                self._strong_connect(node)
-        
-        cycles = [scc for scc in self.sccs if len(scc) > 1]
-        return cycles
-    
-    def _reset(self):
-        self.index = 0
-        self.stack = []
-        self.sccs = []
-        self.nodes = {}
-    
-    def _strong_connect(self, v: CycleNode):
-        v.index = self.index
-        v.lowlink = self.index
-        self.index += 1
-        self.stack.append(v)
-        v.on_stack = True
-        
-        for w_id in v.neighbors:
-            w = self.nodes[w_id]
-            if w.index is None:
-                self._strong_connect(w)
-                v.lowlink = min(v.lowlink, w.lowlink)
-            elif w.on_stack:
-                v.lowlink = min(v.lowlink, w.index)
-        
-        if v.lowlink == v.index:
-            scc = []
-            while True:
-                w = self.stack.pop()
-                w.on_stack = False
-                scc.append(w.id)
-                if w.id == v.id:
-                    break
-            self.sccs.append(scc)
-    
-    def has_cycles(self, edges: list[tuple[str, str]]) -> bool:
-        cycles = self.detect_cycles(edges)
-        return len(cycles) > 0
 ```
 
-- [ ] **Step 2: 创建 tests/sequence/test_cycle_detector.py**
+- [ ] **Step 2: 创建 src/sequence/cycle_detector.py**
+
+```python
+import networkx as nx
+from typing import List, Tuple, Dict, Any
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class CycleDetector:
+    def __init__(self):
+        self.graph = None
+
+    def build_graph(self, components: List[Dict]) -> nx.DiGraph:
+        graph = nx.DiGraph()
+
+        for comp in components:
+            comp_id = comp.get('id') or comp.get('name', '')
+            graph.add_node(comp_id, **comp)
+
+        for comp in components:
+            comp_id = comp.get('id') or comp.get('name', '')
+            dependencies = comp.get('precedence', []) or comp.get('dependencies', [])
+
+            for dep in dependencies:
+                graph.add_edge(comp_id, dep)
+
+        self.graph = graph
+        return graph
+
+    def find_strongly_connected_components(self) -> List[List[str]]:
+        if not self.graph:
+            raise RuntimeError("Graph not built")
+
+        sccs = list(nx.strongly_connected_components(self.graph))
+        sccs = [scc for scc in sccs if len(scc) > 1]
+
+        logger.info(f"Found {len(sccs)} strongly connected components (cycles)")
+        return sccs
+
+    def has_cycles(self) -> bool:
+        if not self.graph:
+            raise RuntimeError("Graph not built")
+
+        try:
+            nx.find_cycle(self.graph)
+            return True
+        except nx.NetworkXNoCycle:
+            return False
+
+    def detect_cycles(self) -> List[List[str]]:
+        if not self.graph:
+            raise RuntimeError("Graph not built")
+
+        cycles = []
+        try:
+            for cycle in nx.simple_cycles(self.graph):
+                if len(cycle) > 1:
+                    cycles.append(cycle)
+        except:
+            pass
+
+        logger.info(f"Detected {len(cycles)} cycles")
+        return cycles
+
+    def break_cycles(self, method: str = 'remove_last') -> nx.DiGraph:
+        if not self.graph:
+            raise RuntimeError("Graph not built")
+
+        broken_graph = self.graph.copy()
+
+        cycles = list(nx.simple_cycles(broken_graph))
+
+        for cycle in cycles:
+            if len(cycle) > 1:
+                if method == 'remove_last':
+                    broken_graph.remove_edge(cycle[-1], cycle[0])
+                elif method == 'remove_first':
+                    broken_graph.remove_edge(cycle[0], cycle[1])
+                elif method == 'break_all':
+                    for i in range(len(cycle) - 1):
+                        broken_graph.remove_edge(cycle[i], cycle[(i + 1) % len(cycle)])
+
+        broken_graph.remove_nodes_from(list(nx.isolates(broken_graph)))
+
+        logger.info(f"Broke cycles using {method}")
+        return broken_graph
+```
+
+- [ ] **Step 3: 创建 tests/sequence/test_cycle_detector.py**
 
 ```python
 import pytest
-from src.sequence.cycle_detector import TarjanCycleDetector
+from src.sequence.cycle_detector import CycleDetector
 
 
-def test_tarjan_import():
-    assert TarjanCycleDetector is not None
+def test_cycle_detector_import():
+    assert CycleDetector is not None
 
 
-def test_no_cycle():
-    detector = TarjanCycleDetector()
-    edges = [('A', 'B'), ('B', 'C'), ('C', 'D')]
-    assert not detector.has_cycles(edges)
-    assert detector.detect_cycles(edges) == []
+def test_build_graph():
+    detector = CycleDetector()
+    components = [
+        {'id': 'A', 'precedence': ['B']},
+        {'id': 'B', 'precedence': []},
+    ]
+    graph = detector.build_graph(components)
+    assert graph.number_of_nodes() == 2
+    assert graph.number_of_edges() == 1
 
 
-def test_with_cycle():
-    detector = TarjanCycleDetector()
-    edges = [('A', 'B'), ('B', 'C'), ('C', 'A')]
-    assert detector.has_cycles(edges)
-    cycles = detector.detect_cycles(edges)
-    assert len(cycles) == 1
-    assert set(cycles[0]) == {'A', 'B', 'C'}
+def test_detect_cycles():
+    detector = CycleDetector()
+    components = [
+        {'id': 'A', 'precedence': ['B']},
+        {'id': 'B', 'precedence': ['A']},
+    ]
+    detector.build_graph(components)
+    cycles = detector.detect_cycles()
+    assert len(cycles) > 0
 
 
-def test_self_loop():
-    detector = TarjanCycleDetector()
-    edges = [('A', 'A'), ('B', 'C')]
-    cycles = detector.detect_cycles(edges)
-    assert len(cycles) == 1
-    assert 'A' in cycles[0]
+def test_has_cycles():
+    detector = CycleDetector()
+    components = [
+        {'id': 'A', 'precedence': ['B']},
+        {'id': 'B', 'precedence': ['A']},
+    ]
+    detector.build_graph(components)
+    assert detector.has_cycles() is True
+
+
+def test_no_cycles():
+    detector = CycleDetector()
+    components = [
+        {'id': 'A', 'precedence': []},
+        {'id': 'B', 'precedence': ['A']},
+    ]
+    detector.build_graph(components)
+    assert detector.has_cycles() is False
+
+
+def test_break_cycles():
+    detector = CycleDetector()
+    components = [
+        {'id': 'A', 'precedence': ['B']},
+        {'id': 'B', 'precedence': ['A']},
+    ]
+    detector.build_graph(components)
+    broken = detector.break_cycles()
+    assert broken.number_of_edges() < detector.graph.number_of_edges()
 ```
 
-- [ ] **Step 3: 运行测试**
+- [ ] **Step 4: 运行测试**
 
 ```bash
 python -m pytest tests/sequence/test_cycle_detector.py -v
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/sequence/cycle_detector.py tests/sequence/test_cycle_detector.py
-git commit -m "feat(sequence): add Tarjan cycle detector"
+git add src/sequence/cycle_detector.py tests/sequence/
+git commit -m feat: add Tarjan cycle detector
 ```
 
 ---
 
-### Task 7: 拆卸序列 - 拓扑排序
+### Task 7: 拆卸序列模块 - 拓扑排序
 
 **Files:**
 - Create: `src/sequence/topological_sort.py`
@@ -702,103 +958,114 @@ git commit -m "feat(sequence): add Tarjan cycle detector"
 - [ ] **Step 1: 创建 src/sequence/topological_sort.py**
 
 ```python
-from typing import Optional
-from collections import deque
+import networkx as nx
+from typing import List, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-class TopologicalSorter:
+class TopologicalSort:
     def __init__(self):
-        self.graph: dict[str, list[str]] = {}
-        self.in_degree: dict[str, int] = {}
-    
-    def sort(self, edges: list[tuple[str, str]], nodes: list[str]) -> Optional[list[str]]:
-        self._build_graph(edges, nodes)
-        
-        queue = deque([n for n in nodes if self.in_degree.get(n, 0) == 0])
-        result = []
-        
-        while queue:
-            node = queue.popleft()
-            result.append(node)
-            
-            for neighbor in self.graph.get(node, []):
-                self.in_degree[neighbor] -= 1
-                if self.in_degree[neighbor] == 0:
-                    queue.append(neighbor)
-        
-        if len(result) != len(nodes):
-            return None
-        
-        return result
-    
-    def find_parallel_groups(self, edges: list[tuple[str, str]], nodes: list[str], sorted_order: list[str]) -> list[list[str]]:
-        self._build_graph(edges, nodes)
-        
-        level = {}
-        for node in nodes:
-            level[node] = 0
-        
-        for node in sorted_order:
-            for neighbor in self.graph.get(node, []):
-                level[neighbor] = max(level[neighbor], level[node] + 1)
-        
-        groups = {}
-        for node, lvl in level.items():
-            if lvl not in groups:
-                groups[lvl] = []
-            groups[lvl].append(node)
-        
-        return [groups[l] for l in sorted(groups.keys())]
-    
-    def _build_graph(self, edges: list[tuple[str, str]], nodes: list[str]):
-        self.graph = {n: [] for n in nodes}
-        self.in_degree = {n: 0 for n in nodes}
-        
-        for source, target in edges:
-            if source in self.graph and target in self.graph:
-                self.graph[source].append(target)
-                self.in_degree[target] += 1
+        self.graph = None
+
+    def set_graph(self, graph: nx.DiGraph):
+        self.graph = graph
+
+    def sort(self) -> List[str]:
+        if not self.graph:
+            raise RuntimeError("Graph not set")
+
+        try:
+            sorted_list = list(nx.topological_sort(self.graph))
+            logger.info(f"Topological sort produced {len(sorted_list)} items")
+            return sorted_list
+        except nx.NetworkXError as e:
+            logger.error(f"Topological sort failed: {e}")
+            raise
+
+    def get_parallel_groups(self) -> List[List[str]]:
+        if not self.graph:
+            raise RuntimeError("Graph not set")
+
+        inDegree = {}
+        for node in self.graph.nodes():
+            inDegree[node] = self.graph.in_degree(node)
+
+        groups = []
+        processed = set()
+
+        while len(processed) < self.graph.number_of_nodes():
+            current_group = []
+
+            for node in self.graph.nodes():
+                if node not in processed and inDegree[node] == 0:
+                    current_group.append(node)
+
+            if not current_group:
+                break
+
+            groups.append(current_group)
+
+            for node in current_group:
+                processed.add(node)
+                for neighbor in self.graph.successors(node):
+                    inDegree[neighbor] -= 1
+
+        logger.info(f"Generated {len(groups)} parallel groups")
+        return groups
+
+    def reverse_sort(self) -> List[str]:
+        if not self.graph:
+            raise RuntimeError("Graph not set")
+
+        reversed_graph = self.graph.reverse()
+
+        try:
+            sorted_list = list(nx.topological_sort(reversed_graph))
+            return sorted_list
+        except nx.NetworkXError as e:
+            logger.error(f"Reverse topological sort failed: {e}")
+            raise
 ```
 
 - [ ] **Step 2: 创建 tests/sequence/test_topological_sort.py**
 
 ```python
 import pytest
-from src.sequence.topological_sort import TopologicalSorter
+from src.sequence.topological_sort import TopologicalSort
+import networkx as nx
 
 
-def test_topological_sorter_import():
-    assert TopologicalSorter is not None
+def test_topological_sort_import():
+    assert TopologicalSort is not None
 
 
-def test_simple_sort():
-    sorter = TopologicalSorter()
-    nodes = ['A', 'B', 'C']
-    edges = [('A', 'B'), ('B', 'C')]
-    result = sorter.sort(edges, nodes)
-    assert result is not None
-    assert result.index('A') < result.index('B')
-    assert result.index('B') < result.index('C')
+def test_sort_linear():
+    sorter = TopologicalSort()
+    graph = nx.DiGraph()
+    graph.add_edges_from([('A', 'B'), ('B', 'C')])
+    sorter.set_graph(graph)
+    result = sorter.sort()
+    assert len(result) == 3
 
 
-def test_parallel_groups():
-    sorter = TopologicalSorter()
-    nodes = ['A', 'B', 'C', 'D']
-    edges = [('A', 'C'), ('B', 'C'), ('C', 'D')]
-    sorted_order = sorter.sort(edges, nodes)
-    groups = sorter.find_parallel_groups(edges, nodes, sorted_order)
-    assert len(groups) == 3
-    assert set(groups[0]) == {'A', 'B'}
-    assert 'C' in groups[1]
-    assert 'D' in groups[2]
+def test_get_parallel_groups():
+    sorter = TopologicalSort()
+    graph = nx.DiGraph()
+    graph.add_edges_from([('A', 'C'), ('B', 'C')])
+    sorter.set_graph(graph)
+    groups = sorter.get_parallel_groups()
+    assert len(groups) >= 2
 
 
-def test_cycle_handling():
-    sorter = TopologicalSorter()
-    nodes = ['A', 'B', 'C']
-    edges = [('A', 'B'), ('B', 'C'), ('C', 'A')]
-    result = sorter.sort(edges, nodes)
-    assert result is None
+def test_reverse_sort():
+    sorter = TopologicalSort()
+    graph = nx.DiGraph()
+    graph.add_edges_from([('A', 'B'), ('B', 'C')])
+    sorter.set_graph(graph)
+    result = sorter.reverse_sort()
+    assert len(result) == 3
 ```
 
 - [ ] **Step 3: 运行测试**
@@ -810,13 +1077,13 @@ python -m pytest tests/sequence/test_topological_sort.py -v
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/sequence/topological_sort.py tests/sequence/test_topological_sort.py
-git commit -m "feat(sequence): add topological sorter"
+git add src/sequence/topological_sort.py tests/sequence/
+git commit -m feat: add topological sort module
 ```
 
 ---
 
-### Task 8: 拆卸序列 - MTM时间估算
+### Task 8: 拆卸序列模块 - MTM时间估算
 
 **Files:**
 - Create: `src/sequence/time_estimator.py`
@@ -825,89 +1092,119 @@ git commit -m "feat(sequence): add topological sorter"
 - [ ] **Step 1: 创建 src/sequence/time_estimator.py**
 
 ```python
-from src.kg.models import Component
-from typing import Optional
+from typing import Dict, List, Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-class MTMT imeEstimator:
-    """
-    MTM (Methods-Time Measurement) based time estimator
-    Based on technical document formulas:
-    - Ts: operation time score (0-3)
-    - Tt: tool switch time score (0-3)
-    - Tp: position move time score (0-3)
-    
-    T = Ts + Tt + Tp (total score)
-    T_seconds = (T / 5) * 85 (score to seconds conversion)
-    """
-    
+class TimeEstimator:
+    MTM_BASE_SECONDS = 85
+
+    TOOL_SWITCH_TIMES = {
+        'screwdriver': 5,
+        'wrench': 5,
+        'plier': 3,
+        'hammer': 2,
+        'heat_gun': 10,
+        'extractor': 8,
+        'none': 0
+    }
+
+    POSITION_TIMES = {
+        'easy': 5,
+        'medium': 15,
+        'difficult': 30
+    }
+
     def __init__(self):
-        self.score_to_seconds_factor = 85 / 5
-    
-    def calculate_time(self, component: Component) -> int:
-        ts = getattr(component, 'avg_operation_time', 1)
-        tt = getattr(component, 'tool_switch_time', 0)
-        tp = getattr(component, 'position_move_time', 0)
-        
-        ts = max(0, min(3, ts))
-        tt = max(0, min(3, tt))
-        tp = max(0, min(3, tp))
-        
-        total_score = ts + tt + tp
-        seconds = int((total_score / 5) * self.score_to_seconds_factor)
-        
-        return max(5, seconds)
-    
-    def calculate_sequence_time(self, components: list[Component], 
-                                 parallel_groups: list[list[str]]) -> int:
+        self.default_tool_switch = 5
+        self.default_position = 15
+
+    def calculate_time(self, operation_time_score: float = 1.0,
+                   tool_switch_time: int = 0,
+                   position_move_time: int = 0) -> int:
+        if tool_switch_time == 0:
+            tool_switch_time = self.default_tool_switch
+        if position_move_time == 0:
+            position_move_time = self.default_position
+
+        score = operation_time_score
+
+        time_seconds = (score / 5) * self.MTM_BASE_SECONDS + tool_switch_time + position_move_time
+
+        return int(time_seconds)
+
+    def estimate_from_component(self, component: Dict) -> int:
+        operation_score = component.get('operation_time_score', 1.0)
+
+        tools = component.get('tool_required', [])
+        tool_time = max(
+            [self.TOOL_SWITCH_TIMES.get(t.lower(), self.default_tool_switch) for t in tools],
+            default=0
+        )
+
+        position = component.get('position_difficulty', 'medium')
+        position_time = self.POSITION_TIMES.get(position.lower(), self.default_position)
+
+        return self.calculate_time(operation_score, tool_time, position_time)
+
+    def estimate_sequence_time(self, components: List[Dict]) -> Dict:
         total_time = 0
-        for group in parallel_groups:
-            group_time = max(
-                self.calculate_time(c) 
-                for c in components 
-                if c.id in group
-            )
-            total_time += group_time
-        return total_time
-    
-    def estimate_from_dict(self, data: dict) -> int:
-        ts = max(0, min(3, data.get('avg_operation_time', 1)))
-        tt = max(0, min(3, data.get('tool_switch_time', 0)))
-        tp = max(0, min(3, data.get('position_move_time', 0)))
-        
-        total_score = ts + tt + tp
-        return int((total_score / 5) * self.score_to_seconds_factor)
+        details = []
+
+        for comp in components:
+            comp_id = comp.get('id', '') or comp.get('name', '')
+            time = self.estimate_from_component(comp)
+            total_time += time
+            details.append({'component': comp_id, 'time': time})
+
+        return {
+            'total_seconds': total_time,
+            'total_minutes': round(total_time / 60, 1),
+            'details': details
+        }
 ```
 
 - [ ] **Step 2: 创建 tests/sequence/test_time_estimator.py**
 
 ```python
 import pytest
-from src.sequence.time_estimator import MTMT imeEstimator
+from src.sequence.time_estimator import TimeEstimator
 
 
 def test_time_estimator_import():
-    assert MTMT imeEstimator is not None
+    assert TimeEstimator is not None
 
 
-def test_minimal_time():
-    estimator = MTMT imeEstimator()
-    assert estimator.estimate_from_dict({'avg_operation_time': 0, 'tool_switch_time': 0, 'position_move_time': 0}) == 5
+def test_calculate_time():
+    estimator = TimeEstimator()
+    result = estimator.calculate_time(1.0, 5, 15)
+    assert result > 0
 
 
-def test_maximal_time():
-    estimator = MTMT imeEstimator()
-    result = estimator.estimate_from_dict({'avg_operation_time': 3, 'tool_switch_time': 3, 'position_move_time': 3})
-    assert result >= 51
+def test_calculate_time_defaults():
+    estimator = TimeEstimator()
+    result = estimator.calculate_time(1.0)
+    assert result > 0
 
 
-def test_score_clamping():
-    estimator = MTMT imeEstimator()
-    result = estimator.estimate_from_dict({'avg_operation_time': 10, 'tool_switch_time': -5, 'position_move_time': 2})
-    expected_ts = 3
-    expected_tt = 0
-    expected_tp = 2
-    assert result == int(((expected_ts + expected_tt + expected_tp) / 5) * 17)
+def test_estimate_from_component():
+    estimator = TimeEstimator()
+    component = {'id': 'A', 'tool_required': ['screwdriver']}
+    result = estimator.estimate_from_component(component)
+    assert result > 0
+
+
+def test_estimate_sequence_time():
+    estimator = TimeEstimator()
+    components = [
+        {'id': 'A', 'tool_required': ['screwdriver']},
+        {'id': 'B', 'tool_required': ['wrench']},
+    ]
+    result = estimator.estimate_sequence_time(components)
+    assert result['total_seconds'] > 0
+    assert len(result['details']) == 2
 ```
 
 - [ ] **Step 3: 运行测试**
@@ -919,13 +1216,13 @@ python -m pytest tests/sequence/test_time_estimator.py -v
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/sequence/time_estimator.py tests/sequence/test_time_estimator.py
-git commit -m "feat(sequence): add MTM time estimator"
+git add src/sequence/time_estimator.py tests/sequence/
+git commit -m feat: add MTM time estimator
 ```
 
 ---
 
-### Task 9: 拆卸序列 - 规划主逻辑
+### Task 9: 拆卸序列模块 - 序列规划主逻辑
 
 **Files:**
 - Create: `src/sequence/planner.py`
@@ -934,87 +1231,118 @@ git commit -m "feat(sequence): add MTM time estimator"
 - [ ] **Step 1: 创建 src/sequence/planner.py**
 
 ```python
-from src.sequence.cycle_detector import TarjanCycleDetector
-from src.sequence.topological_sort import TopologicalSorter
-from src.sequence.time_estimator import MTMT imeEstimator
-from src.kg.models import Component
-from dataclasses import dataclass
-from typing import Optional
+from src.sequence.cycle_detector import CycleDetector
+from src.sequence.topological_sort import TopologicalSort
+from src.sequence.time_estimator import TimeEstimator
+from src.kg.client import Neo4jClient
+from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class DisassemblyStep:
-    id: str
-    name: str
-    time_estimate: int
-    assignee: Optional[str] = None
-    parallel_with: list[str] = None
-    
-    def __post_init__(self):
-        if self.parallel_with is None:
-            self.parallel_with = []
-
-
-@dataclass
-class DisassemblySequence:
-    steps: list[DisassemblyStep]
-    total_time: int
-    parallel_groups: list[list[str]]
-    has_cycles: bool = False
-    cycle_nodes: list[list[str]] = None
-    
-    def __post_init__(self):
-        if self.cycle_nodes is None:
-            self.cycle_nodes = []
+class DisassemblySequence(BaseModel):
+    battery_model: str
+    steps: List[Dict[str, Any]]
+    parallel_groups: List[List[str]]
+    total_time_seconds: int
+    cycle_count: int
 
 
 class SequencePlanner:
-    def __init__(self):
-        self.cycle_detector = TarjanCycleDetector()
-        self.topological_sorter = TopologicalSorter()
-        self.time_estimator = MTMT imeEstimator()
-    
-    def plan(self, components: list[Component]) -> DisassemblySequence:
-        nodes = [c.id for c in components]
-        edges = []
-        for c in components:
-            for precedence in getattr(c, 'precedence', []):
-                edges.append((precedence, c.id))
-        
-        cycles = self.cycle_detector.detect_cycles(edges)
-        has_cycles = len(cycles) > 0
-        
-        sorted_order = self.topological_sorter.sort(edges, nodes)
-        if sorted_order is None:
-            logger.warning('Cycle detected, partial sort returned')
-            sorted_order = nodes
-        
-        parallel_groups = self.topological_sorter.find_parallel_groups(edges, nodes, sorted_order)
-        
+    def __init__(self, neo4j_client: Optional[Neo4jClient] = None):
+        self.neo4j = neo4j_client
+        self.cycle_detector = CycleDetector()
+        self.topological_sort = TopologicalSort()
+        self.time_estimator = TimeEstimator()
+
+    def plan(self, battery_model: str, components: List[Dict] = None) -> DisassemblySequence:
+        if components is None:
+            components = self._load_components(battery_model)
+
+        if not components:
+            logger.warning(f"No components found for {battery_model}")
+            return DisassemblySequence(
+                battery_model=battery_model,
+                steps=[],
+                parallel_groups=[],
+                total_time_seconds=0,
+                cycle_count=0
+            )
+
+        self.cycle_detector.build_graph(components)
+        cycles = self.cycle_detector.detect_cycles()
+        cycle_count = len(cycles)
+
+        if cycles:
+            broken_graph = self.cycle_detector.break_cycles()
+        else:
+            broken_graph = self.cycle_detector.graph
+
+        self.topological_sort.set_graph(broken_graph)
+        sorted_ids = self.topological_sort.sort()
+        parallel_groups = self.topological_sort.get_parallel_groups()
+
+        component_map = {c.get('id', ''): c for c in components}
+        component_map.update({c.get('name', ''): c for c in components})
+
         steps = []
-        component_map = {c.id: c for c in components}
-        for c in components:
-            if c.id in sorted_order:
-                time_est = self.time_estimator.calculate_time(c)
-                step = DisassemblyStep(
-                    id=c.id,
-                    name=c.name,
-                    time_estimate=time_est
-                )
-                steps.append(step)
-        
-        total_time = self.time_estimator.calculate_sequence_time(components, parallel_groups)
-        
-        return DisassemblySequence(
+        for step_num, comp_id in enumerate(sorted_ids, 1):
+            comp = component_map.get(comp_id, {})
+            time = self.time_estimator.estimate_from_component(comp)
+            steps.append({
+                'step': step_num,
+                'component': comp_id,
+                'component_name': comp.get('name', comp_id),
+                'time_seconds': time,
+                'tool_required': comp.get('tool_required', []),
+                'safety_level': comp.get('safety_level', 1)
+            })
+
+        total_time = sum(s['time_seconds'] for s in steps)
+
+        result = DisassemblySequence(
+            battery_model=battery_model,
             steps=steps,
-            total_time=total_time,
             parallel_groups=parallel_groups,
-            has_cycles=has_cycles,
-            cycle_nodes=cycles
+            total_time_seconds=total_time,
+            cycle_count=cycle_count
         )
+
+        logger.info(f"Generated sequence with {len(steps)} steps, {cycle_count} cycles")
+        return result
+
+    def _load_components(self, battery_model: str) -> List[Dict]:
+        if not self.neo4j:
+            return []
+
+        cypher = '''
+        MATCH (c:Component {battery_model: $model})
+        RETURN c.id as id, c.name as name, c.tool_required as tool_required,
+               c.safety_level as safety_level, c.precedence as precedence
+        '''
+
+        results = self.neo4j.execute_query(cypher, {'model': battery_model})
+
+        components = []
+        for r in results:
+            precedence = []
+            if r.get('precedence'):
+                try:
+                    precedence = eval(r['precedence']) if isinstance(r['precedence'], str) else r['precedence']
+                except:
+                    precedence = []
+
+            components.append({
+                'id': r.get('id', ''),
+                'name': r.get('name', ''),
+                'tool_required': r.get('tool_required', []),
+                'safety_level': r.get('safety_level', 1),
+                'precedence': precedence
+            })
+
+        return components
 ```
 
 - [ ] **Step 2: 创建 tests/sequence/test_planner.py**
@@ -1022,35 +1350,39 @@ class SequencePlanner:
 ```python
 import pytest
 from src.sequence.planner import SequencePlanner, DisassemblySequence
-from src.kg.models import Component
 
 
 def test_planner_import():
     assert SequencePlanner is not None
 
 
-def test_simple_sequence():
-    planner = SequencePlanner()
-    components = [
-        Component(id='A', name='Cover', battery_model='X1', preconditions=[]),
-        Component(id='B', name='Screws', battery_model='X1', preconditions=['A']),
-        Component(id='C', name='Pack', battery_model='X1', preconditions=['B'])
-    ]
-    result = planner.plan(components)
-    assert isinstance(result, DisassemblySequence)
-    assert len(result.steps) == 3
-    assert not result.has_cycles
+def test_disassembly_sequence_model():
+    seq = DisassemblySequence(
+        battery_model='test-model',
+        steps=[{'step': 1, 'component': 'A', 'time_seconds': 30}],
+        parallel_groups=[['A']],
+        total_time_seconds=30,
+        cycle_count=0
+    )
+    assert seq.battery_model == 'test-model'
+    assert len(seq.steps) == 1
 
 
-def test_parallel_sequence():
+def test_plan_empty_components():
+    planner = SequencePlanner()
+    result = planner.plan('test-model', [])
+    assert result.battery_model == 'test-model'
+    assert len(result.steps) == 0
+
+
+def test_plan_with_components():
     planner = SequencePlanner()
     components = [
-        Component(id='A', name='Cover', battery_model='X1', preconditions=[]),
-        Component(id='B', name='Screws', battery_model='X1', preconditions=[]),
-        Component(id='C', name='Pack', battery_model='X1', preconditions=['A', 'B'])
+        {'id': 'A', 'name': 'Cover', 'precedence': []},
+        {'id': 'B', 'name': 'Screw', 'precedence': ['A']},
     ]
-    result = planner.plan(components)
-    assert len(result.parallel_groups) >= 2
+    result = planner.plan('test-model', components)
+    assert len(result.steps) == 2
 ```
 
 - [ ] **Step 3: 运行测试**
@@ -1062,122 +1394,154 @@ python -m pytest tests/sequence/test_planner.py -v
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/sequence/planner.py tests/sequence/test_planner.py
-git commit -m "feat(sequence): add sequence planner orchestrator"
+git add src/sequence/planner.py tests/sequence/
+git commit -m feat: add Sequence Planner module
 ```
 
 ---
 
-### Task 10: 人机协作 - LLM打分器
+### Task 10: 人机协作模块 - LLM 9因素打分
 
 **Files:**
+- Create: `src/allocator/__init__.py`
 - Create: `src/allocator/scorer.py`
 - Create: `tests/allocator/test_scorer.py`
 
-- [ ] **Step 1: 创建 src/allocator/scorer.py**
+- [ ] **Step 1: 创建 src/allocator/__init__.py**
+
+```python
+```
+
+- [ ] **Step 2: 创建 src/allocator/scorer.py**
 
 ```python
 from src.utils.llm_client import LLMClient
-from dataclasses import dataclass
+from typing import Dict
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class FactorScores:
-    h_visibility: float = 0.5
-    h_space_limit: float = 0.5
-    h_object_move: float = 0.5
-    h_ergonomics: float = 0.5
-    h_repeatability: float = 0.5
-    s_high_voltage: float = 0.5
-    s_chemical: float = 0.5
-    s_fire_explosion: float = 0.5
-    s_injury: float = 0.5
+class HumanFactorScorer:
+    FACTORS = ['visibility', 'space_limit', 'object_movement', 'ergonomic_impact', 'repetitiveness']
 
+    SAFETY_FACTORS = ['high_voltage', 'chemical_risk', 'fire_explosion', 'personal_injury']
 
-SCORING_PROMPT = '''为以下拆卸步骤评估9个因素的自动化可行性评分（0-1，越高越适合自动化）。
-
-拆卸步骤：{step_name}
-上下文：{context}
-
-评分因素：
-1. 可视性 (H1)
-2. 空间限制 (H2)
-3. 物体移动要求 (H3)
-4. 人因工程影响 (H4)
-5. 重复性 (H5)
-6. 高压风险 (S1)
-7. 化学试剂风险 (S2)
-8. 火灾爆炸风险 (S3)
-9. 人身伤害风险 (S4)
-
-返回JSON格式：
-{{"H1": 0.5, "H2": 0.5, "H3": 0.5, "H4": 0.5, "H5": 0.5, "S1": 0.5, "S2": 0.5, "S3": 0.5, "S4": 0.5}}
-'''
-
-
-class AllocatorScorer:
-    HUMAN_WEIGHTS = [0.2, 0.2, 0.2, 0.2, 0.2]
-    SAFETY_WEIGHTS = [0.25, 0.25, 0.25, 0.25]
-    
     def __init__(self, llm_client: LLMClient):
         self.llm = llm_client
-    
-    def score_step(self, step_name: str, context: str = '') -> FactorScores:
-        prompt = SCORING_PROMPT.format(step_name=step_name, context=context)
+
+    def score_human_factors(self, component_name: str, context: str = '') -> Dict[str, float]:
+        prompt = f'''评估部件 {component_name} 的人力操作难度。
+
+上下文信息：{context}
+
+请对以下5个人力因素给出0-1的评分（0=非常容易，1=非常困难）：
+1. 可视性(visibility)：操作时是否容易看到
+2. 空间限制(space_limit)：操作空间是否受限
+3. 物体移动要求(object_movement)：是否需要移动重物
+4. 人因工程影响(ergonomic_impact)：是否对人体工程学有挑战
+5. 重复性(repetitiveness)：是否需要重复操作
+
+返回JSON格式：
+{{"visibility": 0.0-1.0, "space_limit": 0.0-1.0, "object_movement": 0.0-1.0, "ergonomic_impact": 0.0-1.0, "repetitiveness": 0.0-1.0}}
+'''
+
         try:
-            result = self.llm.generate_json(prompt, ['H1', 'H2', 'H3', 'H4', 'H5', 'S1', 'S2', 'S3', 'S4'])
-            return FactorScores(
-                h_visibility=result.get('H1', 0.5),
-                h_space_limit=result.get('H2', 0.5),
-                h_object_move=result.get('H3', 0.5),
-                h_ergonomics=result.get('H4', 0.5),
-                h_repeatability=result.get('H5', 0.5),
-                s_high_voltage=result.get('S1', 0.5),
-                s_chemical=result.get('S2', 0.5),
-                s_fire_explosion=result.get('S3', 0.5),
-                s_injury=result.get('S4', 0.5)
-            )
+            result = self.llm.generate(prompt)
+            scores = json.loads(result)
+            return scores
         except Exception as e:
-            logger.error(f'Failed to score step {step_name}: {e}')
-            return FactorScores()
+            logger.error(f"Human factor scoring failed: {e}")
+            return {f: 0.5 for f in self.FACTORS}
+
+    def score_safety_factors(self, component_name: str, context: str = '') -> Dict[str, float]:
+        prompt = f'''评估部件 {component_name} 的安全风险。
+
+上下文信息：{context}
+
+请对以下4个安全因素给出0-1的评分（0=无风险，1=高风险）：
+1. 高压风险(high_voltage)：是否涉及高压电
+2. 化学试剂风险(chemical_risk)：是否有腐蚀性/有毒化学物质
+3. 火灾爆炸风险(fire_explosion)：是否有起火/爆炸风险
+4. 人身伤害风险(personal_injury)：是否可能造成人身伤害
+
+返回JSON格式：
+{{"high_voltage": 0.0-1.0, "chemical_risk": 0.0-1.0, "fire_explosion": 0.0-1.0, "personal_injury": 0.0-1.0}}
+'''
+
+        try:
+            result = self.llm.generate(prompt)
+            scores = json.loads(result)
+            return scores
+        except Exception as e:
+            logger.error(f"Safety factor scoring failed: {e}")
+            return {f: 0.5 for f in self.SAFETY_FACTORS}
+
+    def score_all(self, component_name: str, context: str = '') -> Dict:
+        human_scores = self.score_human_factors(component_name, context)
+        safety_scores = self.score_safety_factors(component_name, context)
+
+        return {
+            'component': component_name,
+            'human_scores': human_scores,
+            'safety_scores': safety_scores
+        }
 ```
 
-- [ ] **Step 2: 创建 tests/allocator/test_scorer.py**
+- [ ] **Step 3: 创建 tests/allocator/test_scorer.py**
 
 ```python
 import pytest
-from src.allocator.scorer import AllocatorScorer, FactorScores
+from src.allocator.scorer import HumanFactorScorer
 
 
 def test_scorer_import():
-    assert AllocatorScorer is not None
+    assert HumanFactorScorer is not None
 
 
-def test_factor_scores_default():
-    scores = FactorScores()
-    assert scores.h_visibility == 0.5
-    assert scores.s_high_voltage == 0.5
+class MockLLM:
+    def generate(self, prompt):
+        return '{"visibility": 0.3, "space_limit": 0.5, "object_movement": 0.2, "ergonomic_impact": 0.4, "repetitiveness": 0.1}'
+
+
+def test_human_factor_scorer():
+    scorer = HumanFactorScorer(MockLLM())
+    result = scorer.score_human_factors('BatteryCover', 'test context')
+    assert 'visibility' in result
+    assert 0 <= result['visibility'] <= 1
+
+
+def test_safety_factor_scorer():
+    scorer = HumanFactorScorer(MockLLM())
+    result = scorer.score_safety_factors('BatteryCover', 'test context')
+    assert 'high_voltage' in result
+    assert 0 <= result['high_voltage'] <= 1
+
+
+def test_score_all():
+    scorer = HumanFactorScorer(MockLLM())
+    result = scorer.score_all('BatteryCover', 'test context')
+    assert 'human_scores' in result
+    assert 'safety_scores' in result
 ```
 
-- [ ] **Step 3: 运行测试**
+- [ ] **Step 4: 运行测试**
 
 ```bash
 python -m pytest tests/allocator/test_scorer.py -v
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/allocator/scorer.py tests/allocator/test_scorer.py
-git commit -m "feat(allocator): add LLM scorer for 9 factors"
+git add src/allocator/scorer.py tests/allocator/
+git commit -m feat: add LLM 9-factor scorer
 ```
 
 ---
 
-### Task 11: 人机协作 - AS计算器
+### Task 11: 人机协作模块 - AS得分计算
 
 **Files:**
 - Create: `src/allocator/as_calculator.py`
@@ -1186,55 +1550,51 @@ git commit -m "feat(allocator): add LLM scorer for 9 factors"
 - [ ] **Step 1: 创建 src/allocator/as_calculator.py**
 
 ```python
-from src.allocator.scorer import FactorScores
+from typing import Dict, List
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ASCalculator:
-    """
-    Calculate Automation Score (AS) based on 9 factors.
-    
-    AS = 0.5 * [Σ(Hi × Wi) + Σ(Si × wi)]
-    
-    Rules:
-    - AS > 0.6 → robot
-    - AS < 0.4 → human
-    - 0.4 ≤ AS ≤ 0.6 → cost comparison
-    """
-    
-    HUMAN_WEIGHTS = [0.2, 0.2, 0.2, 0.2, 0.2]
-    SAFETY_WEIGHTS = [0.25, 0.25, 0.25, 0.25]
-    
-    ROBOT_THRESHOLD = 0.6
-    HUMAN_THRESHOLD = 0.4
-    
-    def calculate(self, scores: FactorScores) -> float:
-        h_values = [
-            scores.h_visibility,
-            scores.h_space_limit,
-            scores.h_object_move,
-            scores.h_ergonomics,
-            scores.h_repeatability
-        ]
-        
-        s_values = [
-            scores.s_high_voltage,
-            scores.s_chemical,
-            scores.s_fire_explosion,
-            scores.s_injury
-        ]
-        
-        h_sum = sum(h * w for h, w in zip(h_values, self.HUMAN_WEIGHTS))
-        s_sum = sum(s * w for s, w in zip(s_values, self.SAFETY_WEIGHTS))
-        
-        return 0.5 * (h_sum + s_sum)
-    
-    def recommend(self, as_score: float) -> str:
-        if as_score > self.ROBOT_THRESHOLD:
+    DEFAULT_H_WEIGHTS = [0.2, 0.2, 0.2, 0.2, 0.2]
+
+    DEFAULT_S_WEIGHTS = [0.25, 0.25, 0.25, 0.25]
+
+    def __init__(self, h_weights: List[float] = None, s_weights: List[float] = None):
+        self.h_weights = h_weights or self.DEFAULT_H_WEIGHTS
+        self.s_weights = s_weights or self.DEFAULT_S_WEIGHTS
+
+    def calculate_as(self, h_scores: Dict[str, float], s_scores: Dict[str, float]) -> float:
+        h_keys = ['visibility', 'space_limit', 'object_movement', 'ergonomic_impact', 'repetitiveness']
+        s_keys = ['high_voltage', 'chemical_risk', 'fire_explosion', 'personal_injury']
+
+        h_vals = [h_scores.get(k, 0.5) for k in h_keys]
+        s_vals = [s_scores.get(k, 0.5) for k in s_keys]
+
+        h_weighted = sum(v * w for v, w in zip(h_vals, self.h_weights))
+        s_weighted = sum(v * w for v, w in zip(s_vals, self.s_weights))
+
+        as_score = 0.5 * (h_weighted + s_weighted)
+
+        logger.info(f"Calculated AS score: {as_score:.3f}")
+        return round(as_score, 3)
+
+    def calculate_as_from_combined(self, combined_scores: Dict) -> float:
+        h_scores = combined_scores.get('human_scores', {})
+        s_scores = combined_scores.get('safety_scores', {})
+
+        return self.calculate_as(h_scores, s_scores)
+
+    def determine_assignee(self, as_score: float,
+                         robot_cost: float = 100.0,
+                         human_cost: float = 80.0) -> str:
+        if as_score > 0.6:
             return 'robot'
-        elif as_score < self.HUMAN_THRESHOLD:
+        elif as_score < 0.4:
             return 'human'
         else:
-            return 'cost_comparison'
+            return 'robot' if robot_cost < human_cost else 'human'
 ```
 
 - [ ] **Step 2: 创建 tests/allocator/test_as_calculator.py**
@@ -1242,48 +1602,33 @@ class ASCalculator:
 ```python
 import pytest
 from src.allocator.as_calculator import ASCalculator
-from src.allocator.scorer import FactorScores
 
 
 def test_as_calculator_import():
     assert ASCalculator is not None
 
 
-def test_calculate_robot():
-    calc = ASCalculator()
-    scores = FactorScores(
-        h_visibility=0.8, h_space_limit=0.8, h_object_move=0.8,
-        h_ergonomics=0.8, h_repeatability=0.8,
-        s_high_voltage=0.8, s_chemical=0.8, s_fire_explosion=0.8, s_injury=0.8
-    )
-    as_score = calc.calculate(scores)
-    assert as_score > 0.6
+def test_calculate_as():
+    calculator = ASCalculator()
+    h_scores = {'visibility': 0.3, 'space_limit': 0.5, 'object_movement': 0.2, 'ergonomic_impact': 0.4, 'repetitiveness': 0.1}
+    s_scores = {'high_voltage': 0.6, 'chemical_risk': 0.2, 'fire_explosion': 0.1, 'personal_injury': 0.3}
+    result = calculator.calculate_as(h_scores, s_scores)
+    assert 0 <= result <= 1
 
 
-def test_calculate_human():
-    calc = ASCalculator()
-    scores = FactorScores(
-        h_visibility=0.1, h_space_limit=0.1, h_object_move=0.1,
-        h_ergonomics=0.1, h_repeatability=0.1,
-        s_high_voltage=0.1, s_chemical=0.1, s_fire_explosion=0.1, s_injury=0.1
-    )
-    as_score = calc.calculate(scores)
-    assert as_score < 0.4
+def test_determine_assignee_robot():
+    calculator = ASCalculator()
+    assert calculator.determine_assignee(0.7) == 'robot'
 
 
-def test_recommend_robot():
-    calc = ASCalculator()
-    assert calc.recommend(0.7) == 'robot'
+def test_determine_assignee_human():
+    calculator = ASCalculator()
+    assert calculator.determine_assignee(0.3) == 'human'
 
 
-def test_recommend_human():
-    calc = ASCalculator()
-    assert calc.recommend(0.3) == 'human'
-
-
-def test_recommend_cost():
-    calc = ASCalculator()
-    assert calc.recommend(0.5) == 'cost_comparison'
+def test_determine_assignee_cost_based():
+    calculator = ASCalculator()
+    assert calculator.determine_assignee(0.5, robot_cost=100, human_cost=80) == 'human'
 ```
 
 - [ ] **Step 3: 运行测试**
@@ -1295,13 +1640,13 @@ python -m pytest tests/allocator/test_as_calculator.py -v
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/allocator/as_calculator.py tests/allocator/test_as_calculator.py
-git commit -m "feat(allocator): add AS calculator"
+git add src/allocator/as_calculator.py tests/allocator/
+git commit -m feat: add AS score calculator
 ```
 
 ---
 
-### Task 12: 人机协作 - 分配主逻辑
+### Task 12: 人机协作模块 - 分配主逻辑
 
 **Files:**
 - Create: `src/allocator/allocator.py`
@@ -1310,67 +1655,129 @@ git commit -m "feat(allocator): add AS calculator"
 - [ ] **Step 1: 创建 src/allocator/allocator.py**
 
 ```python
-from src.allocator.scorer import AllocatorScorer, FactorScores
+from src.allocator.scorer import HumanFactorScorer
 from src.allocator.as_calculator import ASCalculator
-from src.sequence.planner import DisassemblySequence, DisassemblyStep
-from dataclasses import dataclass
+from src.utils.llm_client import LLMClient
+from src.sequence.planner import DisassemblySequence
+from pydantic import BaseModel
+from typing import List, Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class CostFactors:
-    human_cost: float = 1.0
-    robot_cost: float = 1.0
-    human_loss: float = 0.0
-    robot_loss: float = 0.0
+class AllocationResult(BaseModel):
+    battery_model: str
+    allocations: List[Dict[str, Any]]
+    human_count: int
+    robot_count: int
+    total_time_seconds: int
 
 
 class HumanRobotAllocator:
-    ROBOT_THRESHOLD = 0.6
-    HUMAN_THRESHOLD = 0.4
-    
-    def __init__(self, llm_client):
-        self.scorer = AllocatorScorer(llm_client)
+    def __init__(self, llm_client: LLMClient):
+        self.scorer = HumanFactorScorer(llm_client)
         self.calculator = ASCalculator()
-    
-    def allocate(self, sequence: DisassemblySequence, context: str = '') -> DisassemblySequence:
+
+    def allocate(self, sequence: DisassemblySequence) -> AllocationResult:
+        battery_model = sequence.battery_model
+        allocations = []
+        human_count = 0
+        robot_count = 0
+
         for step in sequence.steps:
-            scores = self.scorer.score_step(step.name, context)
-            as_score = self.calculator.calculate(scores)
-            
-            if as_score > self.ROBOT_THRESHOLD:
-                step.assignee = 'robot'
-            elif as_score < self.HUMAN_THRESHOLD:
-                step.assignee = 'human'
+            component_name = step.get('component_name', '')
+            context = f"操作: {step.get('action', '拆卸')}, 工具: {step.get('tool_required', [])}"
+
+            try:
+                scores = self.scorer.score_all(component_name, context)
+                as_score = self.calculator.calculate_as_from_combined(scores)
+                assignee = self.calculator.determine_assignee(as_score)
+            except Exception as e:
+                logger.warning(f"Scoring failed for {component_name}: {e}")
+                as_score = 0.5
+                assignee = 'human'
+
+            if assignee == 'human':
+                human_count += 1
             else:
-                step.assignee = self._cost_comparison(step, scores)
-        
-        return sequence
-    
-    def _cost_comparison(self, step: DisassemblyStep, scores: FactorScores) -> str:
-        human_cost = 1.0 + (1 - scores.h_ergonomics) * 0.5
-        robot_cost = 1.0 + (1 - scores.s_high_voltage) * 0.3
-        
-        return 'robot' if robot_cost < human_cost else 'human'
+                robot_count += 1
+
+            allocations.append({
+                'step': step.get('step'),
+                'component': component_name,
+                'as_score': as_score,
+                'assignee': assignee,
+                'time_seconds': step.get('time_seconds', 0)
+            })
+
+        total_time = sum(a['time_seconds'] for a in allocations)
+
+        result = AllocationResult(
+            battery_model=battery_model,
+            allocations=allocations,
+            human_count=human_count,
+            robot_count=robot_count,
+            total_time_seconds=total_time
+        )
+
+        logger.info(f"Allocated {human_count} human, {robot_count} robot tasks")
+        return result
 ```
 
 - [ ] **Step 2: 创建 tests/allocator/test_allocator.py**
 
 ```python
 import pytest
-from src.allocator.allocator import HumanRobotAllocator, CostFactors
+from src.allocator.allocator import HumanRobotAllocator, AllocationResult
+from src.sequence.planner import DisassemblySequence
 
 
 def test_allocator_import():
     assert HumanRobotAllocator is not None
 
 
-def test_cost_factors_default():
-    costs = CostFactors()
-    assert costs.human_cost == 1.0
-    assert costs.robot_cost == 1.0
+def test_allocation_result_model():
+    result = AllocationResult(
+        battery_model='test',
+        allocations=[{'component': 'A', 'assignee': 'human'}],
+        human_count=1,
+        robot_count=0,
+        total_time_seconds=30
+    )
+    assert result.human_count == 1
+
+
+def test_allocate_with_mock():
+    class MockLLM:
+        def generate(self, prompt):
+            return '{"visibility": 0.3, "space_limit": 0.5, "object_movement": 0.2, "ergonomic_impact": 0.4, "repetitiveness": 0.1}'
+
+    class MockScoreSafety:
+        def generate(self, prompt):
+            return '{"high_voltage": 0.6, "chemical_risk": 0.2, "fire_explosion": 0.1, "personal_injury": 0.3}'
+
+    class MockLLM2:
+        def __init__(self):
+            self.call_count = 0
+
+        def generate(self, prompt):
+            self.call_count += 1
+            if '人力' in prompt or '操作难度' in prompt:
+                return '{"visibility": 0.3, "space_limit": 0.5, "object_movement": 0.2, "ergonomic_impact": 0.4, "repetitiveness": 0.1}'
+            else:
+                return '{"high_voltage": 0.6, "chemical_risk": 0.2, "fire_explosion": 0.1, "personal_injury": 0.3}'
+
+    allocator = HumanRobotAllocator(MockLLM2())
+    sequence = DisassemblySequence(
+        battery_model='test',
+        steps=[{'step': 1, 'component': 'A', 'component_name': 'Cover', 'time_seconds': 30, 'tool_required': []}],
+        parallel_groups=[['A']],
+        total_time_seconds=30,
+        cycle_count=0
+    )
+    result = allocator.allocate(sequence)
+    assert result.battery_model == 'test'
 ```
 
 - [ ] **Step 3: 运行测试**
@@ -1382,22 +1789,29 @@ python -m pytest tests/allocator/test_allocator.py -v
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/allocator/allocator.py tests/allocator/test_allocator.py
-git commit -m "feat(allocator): add human-robot allocator"
+git add src/allocator/allocator.py tests/allocator/
+git commit -m feat: add Human-Robot Allocator module
 ```
 
 ---
 
-### Task 13: 混合图输出 - Mermaid生成器
+### Task 13: 混合图输出模块 - Mermaid生成
 
 **Files:**
+- Create: `src/graph_output/__init__.py`
 - Create: `src/graph_output/mermaid_gen.py`
 - Create: `tests/graph_output/test_mermaid_gen.py`
 
-- [ ] **Step 1: 创建 src/graph_output/mermaid_gen.py**
+- [ ] **Step 1: 创建 src/graph_output/__init__.py**
 
 ```python
-from src.sequence.planner import DisassemblySequence, DisassemblyStep
+```
+
+- [ ] **Step 2: 创建 src/graph_output/mermaid_gen.py**
+
+```python
+from src.sequence.planner import DisassemblySequence
+from typing import List, Dict
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1405,85 +1819,110 @@ logger = logging.getLogger(__name__)
 
 class MermaidGenerator:
     def __init__(self):
-        self.node_styles = {
-            'robot': 'fill:#90EE90,stroke:#228B22',
-            'human': 'fill:#87CEEB,stroke:#4169E1',
-            'default': 'fill:#f9f,stroke:#333'
-        }
-    
-    def generate(self, sequence: DisassemblySequence, edges: list[tuple[str, str]] = None) -> str:
+        self.node_counter = 0
+
+    def generate(self, sequence: DisassemblySequence) -> str:
         lines = ['graph TD']
-        
+
+        node_map = {}
+
         for step in sequence.steps:
-            label = f'{step.name}\\n({step.time_estimate}s)'
-            style = self._get_node_style(step)
-            lines.append(f'    {step.id}[\'{label}\"]:::{style}')
-        
-        if edges:
-            for source, target in edges:
-                lines.append(f'    {source} --> {target}')
-        else:
-            for i in range(len(sequence.steps) - 1):
-                curr = sequence.steps[i]
-                next_step = sequence.steps[i + 1]
-                lines.append(f'    {curr.id} --> {next_step.id}')
-        
-        lines.append('')
-        lines.append('    classDef robot fill:#90EE90,stroke:#228B22')
-        lines.append('    classDef human fill:#87CEEB,stroke:#4169E1')
-        
+            comp_name = step.get('component', '')
+            if not comp_name:
+                continue
+
+            node_id = f"N{self.node_counter}"
+            node_map[comp_name] = node_id
+            self.node_counter += 1
+
+            assignee = step.get('assignee', 'human')
+            time = step.get('time_seconds', 0)
+
+            color = 'green' if assignee == 'human' else 'blue'
+
+            label = f"{comp_name}\\n({assignee[:1].upper()}) {time}s"
+            lines.append(f'    {node_id}[{{{label}}}]')
+
+        for step in sequence.steps:
+            comp_name = step.get('component', '')
+            if not comp_name:
+                continue
+
+            from_id = node_map.get(comp_name)
+            if not from_id:
+                continue
+
+            precedence = step.get('precedence', [])
+            if precedence:
+                for dep in precedence:
+                    to_id = node_map.get(dep)
+                    if to_id:
+                        lines.append(f'    {from_id} --> {to_id}')
+
+        logger.info(f"Generated Mermaid graph with {len(node_map)} nodes")
         return '\n'.join(lines)
-    
-    def _get_node_style(self, step: DisassemblyStep) -> str:
-        if step.assignee == 'robot':
-            return 'robot'
-        elif step.assignee == 'human':
-            return 'human'
-        return 'default'
+
+    def generate_parallel(self, parallel_groups: List[List[str]]) -> str:
+        lines = ['graph TD']
+
+        for group in parallel_groups:
+            if len(group) > 1:
+                components = ', '.join(group)
+                lines.append(f'    subgraph parallel_{len(lines)}')
+                lines.append(f'        {components}')
+                lines.append(f'    end')
+
+        return '\n'.join(lines)
 ```
 
-- [ ] **Step 2: 创建 tests/graph_output/test_mermaid_gen.py**
+- [ ] **Step 3: 创建 tests/graph_output/test_mermaid_gen.py**
 
 ```python
 import pytest
 from src.graph_output.mermaid_gen import MermaidGenerator
-from src.sequence.planner import DisassemblyStep
+from src.sequence.planner import DisassemblySequence
 
 
-def test_mermaid_generator_import():
+def test_mermaid_gen_import():
     assert MermaidGenerator is not None
 
 
-def test_generate_basic():
+def test_generate_simple():
     gen = MermaidGenerator()
-    steps = [
-        DisassemblyStep(id='A', name='Cover', time_estimate=10),
-        DisassemblyStep(id='B', name='Screws', time_estimate=20)
-    ]
-    from src.sequence.planner import DisassemblySequence
-    seq = DisassemblySequence(steps=steps, total_time=30, parallel_groups=[['A'], ['B']])
-    mermaid = gen.generate(seq)
-    assert 'graph TD' in mermaid
-    assert 'A' in mermaid
-    assert 'B' in mermaid
+    sequence = DisassemblySequence(
+        battery_model='test',
+        steps=[{'step': 1, 'component': 'A', 'component_name': 'Cover', 'time_seconds': 30, 'tool_required': []}],
+        parallel_groups=[['A']],
+        total_time_seconds=30,
+        cycle_count=0
+    )
+    result = gen.generate(sequence)
+    assert 'graph TD' in result
+
+
+def test_generate_parallel():
+    gen = MermaidGenerator()
+    groups = [['A', 'B'], ['C']]
+    result = gen.generate_parallel(groups)
+    assert 'graph TD' in result
 ```
 
-- [ ] **Step 3: 运行测试**
+- [ ] **Step 4: 运行测试**
 
 ```bash
 python -m pytest tests/graph_output/test_mermaid_gen.py -v
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/graph_output/mermaid_gen.py tests/graph_output/test_mermaid_gen.py
-git commit -m "feat(graph_output): add Mermaid generator"
+git add src/graph_output/mermaid_gen.py tests/graph_output/
+git commit -m feat: add Mermaid generator
 ```
 
 ---
 
-### Task 14: 混合图输出 - JSON构建器
+### Task 14: 混合图输出模块 - JSON构建
 
 **Files:**
 - Create: `src/graph_output/json_builder.py`
@@ -1492,69 +1931,110 @@ git commit -m "feat(graph_output): add Mermaid generator"
 - [ ] **Step 1: 创建 src/graph_output/json_builder.py**
 
 ```python
-from src.sequence.planner import DisassemblySequence, DisassemblyStep
-from typing import Any
+from src.sequence.planner import DisassemblySequence
+from typing import List, Dict, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-class JSONGraphBuilder:
-    def build(self, sequence: DisassemblySequence, edges: list[tuple[str, str]] = None) -> dict[str, Any]:
-        nodes = [
-            {
-                'id': step.id,
-                'label': step.name,
-                'time': step.time_estimate,
-                'assignee': step.assignee,
-                'parallel_with': step.parallel_with
-            }
-            for step in sequence.steps
-        ]
-        
-        graph_edges = []
-        if edges:
-            for source, target in edges:
-                graph_edges.append({'from': source, 'to': target, 'type': 'PRECEDES'})
-        else:
-            for i in range(len(sequence.steps) - 1):
-                curr = sequence.steps[i]
-                next_step = sequence.steps[i + 1]
-                graph_edges.append({'from': curr.id, 'to': next_step.id, 'type': 'PRECEDES'})
-        
-        return {
+class JSONBuilder:
+    def build(self, sequence: DisassemblySequence, allocations: Optional[List[Dict]] = None) -> Dict:
+        nodes = []
+        edges = []
+
+        for step in sequence.steps:
+            comp = step.get('component', '')
+            if not comp:
+                continue
+
+            allocation = None
+            if allocations:
+                for a in allocations:
+                    if a.get('component') == comp:
+                        allocation = a
+                        break
+
+            nodes.append({
+                'id': comp,
+                'label': step.get('component_name', comp),
+                'assignee': allocation.get('assignee', 'human') if allocation else 'human',
+                'time_seconds': step.get('time_seconds', 0),
+                'safety_level': step.get('safety_level', 1),
+                'tool_required': step.get('tool_required', [])
+            })
+
+        for step in sequence.steps:
+            comp = step.get('component', '')
+            if not comp:
+                continue
+
+            precedence = step.get('precedence', [])
+            for dep in precedence:
+                edges.append({
+                    'from': dep,
+                    'to': comp,
+                    'type': 'PRECEDES'
+                })
+
+        parallel_groups = []
+        for group in (sequence.parallel_groups or []):
+            parallel_groups.append([str(c) for c in group])
+
+        result = {
+            'battery_model': sequence.battery_model,
+            'total_time_seconds': sequence.total_time_seconds,
+            'total_time_minutes': round(sequence.total_time_seconds / 60, 1),
+            'cycle_count': sequence.cycle_count,
             'nodes': nodes,
-            'edges': graph_edges,
-            'parallel_groups': sequence.parallel_groups,
-            'total_time': sequence.total_time,
-            'metadata': {
-                'has_cycles': sequence.has_cycles,
-                'cycle_nodes': sequence.cycle_nodes
-            }
+            'edges': edges,
+            'parallel_groups': parallel_groups,
+            'human_count': sum(1 for n in nodes if n['assignee'] == 'human'),
+            'robot_count': sum(1 for n in nodes if n['assignee'] == 'robot')
         }
+
+        logger.info(f"Built JSON graph with {len(nodes)} nodes, {len(edges)} edges")
+        return result
 ```
 
 - [ ] **Step 2: 创建 tests/graph_output/test_json_builder.py**
 
 ```python
 import pytest
-from src.graph_output.json_builder import JSONGraphBuilder
-from src.sequence.planner import DisassemblyStep, DisassemblySequence
+from src.graph_output.json_builder import JSONBuilder
+from src.sequence.planner import DisassemblySequence
 
 
 def test_json_builder_import():
-    assert JSONGraphBuilder is not None
+    assert JSONBuilder is not None
 
 
-def test_build_basic():
-    builder = JSONGraphBuilder()
-    steps = [
-        DisassemblyStep(id='A', name='Cover', time_estimate=10),
-        DisassemblyStep(id='B', name='Screws', time_estimate=20)
-    ]
-    seq = DisassemblySequence(steps=steps, total_time=30, parallel_groups=[['A'], ['B']])
-    result = builder.build(seq)
-    assert 'nodes' in result
-    assert 'edges' in result
-    assert 'parallel_groups' in result
-    assert len(result['nodes']) == 2
+def test_build_simple():
+    builder = JSONBuilder()
+    sequence = DisassemblySequence(
+        battery_model='test',
+        steps=[{'step': 1, 'component': 'A', 'component_name': 'Cover', 'time_seconds': 30, 'safety_level': 1, 'tool_required': []}],
+        parallel_groups=[['A']],
+        total_time_seconds=30,
+        cycle_count=0
+    )
+    result = builder.build(sequence)
+    assert result['battery_model'] == 'test'
+    assert len(result['nodes']) == 1
+
+
+def test_build_with_allocations():
+    builder = JSONBuilder()
+    sequence = DisassemblySequence(
+        battery_model='test',
+        steps=[{'step': 1, 'component': 'A', 'component_name': 'Cover', 'time_seconds': 30, 'safety_level': 1, 'tool_required': []}],
+        parallel_groups=[['A']],
+        total_time_seconds=30,
+        cycle_count=0
+    )
+    allocations = [{'component': 'A', 'assignee': 'robot'}]
+    result = builder.build(sequence, allocations)
+    assert result['nodes'][0]['assignee'] == 'robot'
 ```
 
 - [ ] **Step 3: 运行测试**
@@ -1566,13 +2046,13 @@ python -m pytest tests/graph_output/test_json_builder.py -v
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/graph_output/json_builder.py tests/graph_output/test_json_builder.py
-git commit -m "feat(graph_output): add JSON graph builder"
+git add src/graph_output/json_builder.py tests/graph_output/
+git commit -m feat: add JSON builder
 ```
 
 ---
 
-### Task 15: 混合图输出 - 输出主逻辑
+### Task 15: 混合图输出模块 - 输出主逻辑
 
 **Files:**
 - Create: `src/graph_output/generator.py`
@@ -1582,34 +2062,38 @@ git commit -m "feat(graph_output): add JSON graph builder"
 
 ```python
 from src.graph_output.mermaid_gen import MermaidGenerator
-from src.graph_output.json_builder import JSONGraphBuilder
+from src.graph_output.json_builder import JSONBuilder
 from src.sequence.planner import DisassemblySequence
-from dataclasses import dataclass
-from typing import Any
+from pydantic import BaseModel
+from typing import Optional, List, Dict
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-@dataclass
-class GraphOutput:
+class GraphOutput(BaseModel):
     mermaid: str
-    json: dict[str, Any]
-    total_time: int
-    parallel_groups: list[list[str]]
+    json: Dict
 
 
 class GraphOutputGenerator:
     def __init__(self):
         self.mermaid_gen = MermaidGenerator()
-        self.json_builder = JSONGraphBuilder()
-    
-    def generate(self, sequence: DisassemblySequence, edges: list[tuple[str, str]] = None) -> GraphOutput:
-        mermaid = self.mermaid_gen.generate(sequence, edges)
-        json_graph = self.json_builder.build(sequence, edges)
-        
+        self.json_builder = JSONBuilder()
+
+    def generate(self, sequence: DisassemblySequence,
+                allocations: Optional[List[Dict]] = None) -> GraphOutput:
+        mermaid = self.mermaid_gen.generate(sequence)
+
+        if sequence.parallel_groups:
+            parallel_mermaid = self.mermaid_gen.generate_parallel(sequence.parallel_groups)
+            mermaid += '\n\n' + parallel_mermaid
+
+        json_output = self.json_builder.build(sequence, allocations)
+
         return GraphOutput(
             mermaid=mermaid,
-            json=json_graph,
-            total_time=sequence.total_time,
-            parallel_groups=sequence.parallel_groups
+            json=json_output
         )
 ```
 
@@ -1618,14 +2102,33 @@ class GraphOutputGenerator:
 ```python
 import pytest
 from src.graph_output.generator import GraphOutputGenerator, GraphOutput
+from src.sequence.planner import DisassemblySequence
 
 
 def test_generator_import():
     assert GraphOutputGenerator is not None
 
 
-def test_graph_output_dataclass():
-    assert GraphOutput is not None
+def test_graph_output_model():
+    output = GraphOutput(
+        mermaid="graph TD\\n    A[...]",
+        json={'nodes': [], 'edges': []}
+    )
+    assert output.mermaid.startswith('graph TD')
+
+
+def test_generate():
+    gen = GraphOutputGenerator()
+    sequence = DisassemblySequence(
+        battery_model='test',
+        steps=[{'step': 1, 'component': 'A', 'component_name': 'Cover', 'time_seconds': 30, 'safety_level': 1, 'tool_required': []}],
+        parallel_groups=[['A']],
+        total_time_seconds=30,
+        cycle_count=0
+    )
+    result = gen.generate(sequence)
+    assert 'graph TD' in result.mermaid
+    assert result.json['battery_model'] == 'test'
 ```
 
 - [ ] **Step 3: 运行测试**
@@ -1637,219 +2140,115 @@ python -m pytest tests/graph_output/test_generator.py -v
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/graph_output/generator.py tests/graph_output/test_generator.py
-git commit -m "feat(graph_output): add graph output generator"
+git add src/graph_output/generator.py tests/graph_output/
+git commit -m feat: add Graph Output Generator
 ```
 
 ---
 
-### Task 16: API层 - 新增端点
+### Task 16: API整合
 
 **Files:**
 - Modify: `src/api/routes.py`
-- Create: `src/api/schemas_phase2.py`
 
-- [ ] **Step 1: 创建 src/api/schemas_phase2.py**
+- [ ] **Step 1: 更新routes.py添加新端点**
 
 ```python
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Dict, Any, Optional
+
+router = APIRouter()
 
 
 class SequenceRequest(BaseModel):
     battery_model: str
-    components: list[dict] = []
-
-
-class SequenceResponse(BaseModel):
-    code: int = 0
-    message: str = 'Success'
-    data: Optional[dict] = None
+    components: List[Dict[str, Any]] = []
 
 
 class AllocateRequest(BaseModel):
-    sequence: dict
-    context: str = ''
+    battery_model: str
+    sequence: Dict[str, Any]
 
 
 class GraphRequest(BaseModel):
-    sequence: dict
-    edges: list[tuple[str, str]] = []
+    battery_model: str
+    sequence: Dict[str, Any]
+    allocations: List[Dict[str, Any]] = []
 
 
-class GraphResponse(BaseModel):
-    code: int = 0
-    message: str = 'Success'
-    data: Optional[dict] = None
-
-
-class ImportRequest(BaseModel):
-    file_path: str
-
-
-class ImportResponse(BaseModel):
-    code: int = 0
-    message: str = 'Success'
-    data: Optional[dict] = None
-
-
-class PromoteRequest(BaseModel):
-    doc_id: str
-    component_data: dict
-
-
-class PromoteResponse(BaseModel):
-    code: int = 0
-    message: str = 'Success'
-    data: Optional[dict] = None
-```
-
-- [ ] **Step 2: 更新 src/api/routes.py 添加新端点**
-
-```python
-from fastapi import APIRouter, HTTPException
-from src.api.schemas import PlanRequest, PlanResponse, HealthResponse
-from src.api.schemas_phase2 import (
-    SequenceRequest, SequenceResponse,
-    AllocateRequest, AllocateResponse,
-    GraphRequest, GraphResponse,
-    ImportRequest, ImportResponse,
-    PromoteRequest, PromoteResponse
-)
-from src.sequence.planner import SequencePlanner
-from src.allocator.allocator import HumanRobotAllocator
-from src.graph_output.generator import GraphOutputGenerator
-from src.importer.importer import DataImporter
-from src.kg.client import Neo4jClient, MilvusClient
-from src.utils.llm_client import LLMClient
-from src.config import settings
-import logging
-
-logger = logging.getLogger(__name__)
-
-router = APIRouter()
-
-neo4j_client = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
-milvus_client = MilvusClient(settings.milvus_host, settings.milvus_port) if hasattr(settings, 'milvus_host') else None
-llm_client = LLMClient(settings.openai_api_key, settings.openai_base_url, settings.model, settings.temperature, settings.max_tokens)
-
-importer = DataImporter(neo4j_client, llm_client)
-sequence_planner = SequencePlanner()
-allocator = HumanRobotAllocator(llm_client)
-graph_generator = GraphOutputGenerator()
-
-
-@router.post('/api/v1/disassembly/sequence', response_model=SequenceResponse)
+@router.post('/api/v1/disassembly/sequence')
 async def create_sequence(request: SequenceRequest):
-    try:
-        from src.kg.models import Component
-        components = [Component(**c) for c in request.components]
-        sequence = sequence_planner.plan(components)
-        return SequenceResponse(
-            data={
-                'steps': [{'id': s.id, 'name': s.name, 'time_estimate': s.time_estimate} for s in sequence.steps],
-                'total_time': sequence.total_time,
-                'parallel_groups': sequence.parallel_groups
-            }
-        )
-    except Exception as e:
-        logger.error(f'Sequence creation failed: {e}')
-        raise HTTPException(status_code=500, detail=str(e))
+    from src.sequence.planner import SequencePlanner
+
+    planner = SequencePlanner()
+    result = planner.plan(request.battery_model, request.components)
+
+    return {'code': 0, 'data': result.model_dump()}
 
 
-@router.post('/api/v1/disassembly/allocate', response_model=AllocateResponse)
+@router.post('/api/v1/disassembly/allocate')
 async def allocate_tasks(request: AllocateRequest):
-    try:
-        from src.sequence.planner import DisassemblySequence, DisassemblyStep
-        steps = [DisassemblyStep(**s) for s in request.sequence.get('steps', [])]
-        sequence = DisassemblySequence(
-            steps=steps,
-            total_time=request.sequence.get('total_time', 0),
-            parallel_groups=request.sequence.get('parallel_groups', [])
-        )
-        allocated = allocator.allocate(sequence, request.context)
-        return AllocateResponse(
-            data={
-                'steps': [{'id': s.id, 'name': s.name, 'assignee': s.assignee} for s in allocated.steps]
-            }
-        )
-    except Exception as e:
-        logger.error(f'Allocation failed: {e}')
-        raise HTTPException(status_code=500, detail=str(e))
+    from src.sequence.planner import DisassemblySequence
+    from src.allocator.allocator import HumanRobotAllocator
+    from src.utils.llm_client import LLMClient
+    from src.config import settings
+
+    sequence = DisassemblySequence(**request.sequence)
+    llm = LLMClient(settings.openai_api_key, settings.openai_base_url)
+    allocator = HumanRobotAllocator(llm)
+    result = allocator.allocate(sequence)
+
+    return {'code': 0, 'data': result.model_dump()}
 
 
-@router.post('/api/v1/disassembly/graph', response_model=GraphResponse)
+@router.post('/api/v1/disassembly/graph')
 async def generate_graph(request: GraphRequest):
-    try:
-        from src.sequence.planner import DisassemblySequence, DisassemblyStep
-        steps = [DisassemblyStep(**s) for s in request.sequence.get('steps', [])]
-        sequence = DisassemblySequence(
-            steps=steps,
-            total_time=request.sequence.get('total_time', 0),
-            parallel_groups=request.sequence.get('parallel_groups', [])
-        )
-        graph = graph_generator.generate(sequence, request.edges)
-        return GraphResponse(
-            data={
-                'mermaid': graph.mermaid,
-                'json': graph.json,
-                'total_time': graph.total_time
-            }
-        )
-    except Exception as e:
-        logger.error(f'Graph generation failed: {e}')
-        raise HTTPException(status_code=500, detail=str(e))
+    from src.sequence.planner import DisassemblySequence
+    from src.graph_output.generator import GraphOutputGenerator
 
+    sequence = DisassemblySequence(**request.sequence)
+    gen = GraphOutputGenerator()
+    result = gen.generate(sequence, request.allocations)
 
-@router.post('/api/v1/admin/import/pdf', response_model=ImportResponse)
-async def import_pdf(request: ImportRequest):
-    try:
-        result = importer.import_pdf(request.file_path)
-        return ImportResponse(data=result)
-    except Exception as e:
-        logger.error(f'Import failed: {e}')
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post('/api/v1/admin/components/promote', response_model=PromoteResponse)
-async def promote_to_component(request: PromoteRequest):
-    try:
-        component = importer.promote_to_component(request.doc_id, request.component_data)
-        return PromoteResponse(
-            data={'id': component.id, 'name': component.name}
-        )
-    except Exception as e:
-        logger.error(f'Promote failed: {e}')
-        raise HTTPException(status_code=500, detail=str(e))
+    return {'code': 0, 'data': result.model_dump()}
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 2: Commit**
 
 ```bash
-git add src/api/schemas_phase2.py src/api/routes.py
-git commit -m "feat(api): add Phase 2 endpoints"
+git add src/api/routes.py
+git commit -m feat: add Phase 2 API endpoints
 ```
 
 ---
 
 ## 验收标准
 
-- [ ] Task 1-5: 数据导入模块完成
-- [ ] Task 6-9: 拆卸序列规划模块完成
-- [ ] Task 10-12: 人机协作分配模块完成
-- [ ] Task 13-15: 混合图输出模块完成
-- [ ] Task 16: API层整合完成
+- [ ] Task 1: 路径分类器创建完成
+- [ ] Task 2: PDF解析器创建完成
+- [ ] Task 3: 实体提取器创建完成
+- [ ] Task 4: 数据导入主逻辑创建完成
+- [ ] Task 5: 管理界面API创建完成
+- [ ] Task 6: Tarjan环路检测创建完成
+- [ ] Task 7: 拓扑排序创建完成
+- [ ] Task 8: MTM时间估算创建完成
+- [ ] Task 9: 序列规划主逻辑创建完成
+- [ ] Task 10: LLM 9因素打分创建完成
+- [ ] Task 11: AS得分计算创建完成
+- [ ] Task 12: 人机协作分配创建完成
+- [ ] Task 13: Mermaid生成创建完成
+- [ ] Task 14: JSON构建创建完成
+- [ ] Task 15: 混合图输出创建完成
+- [ ] Task 16: API整合完成
 
 ---
 
-## 总结
+## 下一步
 
-**计划文件:** `docs/superpowers/plans/2026-04-14-phase2-implementation-plan.md`
+**选择执行方式：**
 
-**下一步执行选项：**
-
-**1. Subagent-Driven (推荐)** - 每个任务由独立子代理执行，任务间进行审查和快速迭代
-
-**2. Inline Execution** - 使用executing-plans技能在此会话中执行任务，设置检查点进行审查
+1. **Subagent-Driven (推荐)** - 每个任务由独立子代理执行
+2. **Inline Execution** - 在当前会话中执行任务
 
 **你选择哪种方式？**

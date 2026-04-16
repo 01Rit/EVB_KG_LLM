@@ -64,7 +64,11 @@ async def promote_document(request: PromoteRequest):
     from src.importer.importer import DataImporter
 
     neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
-    llm = LLMClient(settings.openai_api_key, settings.openai_base_url)
+    llm = LLMClient(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        model=settings.llm_model
+    )
 
     try:
         importer = DataImporter(neo4j, llm)
