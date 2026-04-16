@@ -1,3 +1,4 @@
+import time
 import pytest
 import asyncio
 from src.utils.rate_limiter import limit_async_func_call
@@ -17,8 +18,9 @@ def test_rate_limiter_blocks_when_maxed():
         results = await asyncio.gather(*[slow_func() for _ in range(4)])
         return results
 
-    start = asyncio.get_event_loop().time()
+    start = time.time()
     results = asyncio.get_event_loop().run_until_complete(run_all())
-    elapsed = asyncio.get_event_loop().time() - start
+    elapsed = time.time() - start
 
+    assert elapsed >= 0.08, f"Expected rate limiting, but elapsed {elapsed:.3f}s is too fast"
     assert max(results) <= 4
