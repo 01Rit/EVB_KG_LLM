@@ -1,36 +1,55 @@
 from src.utils.llm_client import LLMClient
 from src.kg.models import EvidenceGraph
+from src.utils.tokenizer import encode_string_by_tiktoken
 from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
 
+MAX_CONTEXT_TOKENS = 6000
+
 
 class PlanGenerator:
     def __init__(self, llm_client: LLMClient):
         self.llm = llm_client
+
+    def _truncate_evidence(self, evidence: EvidenceGraph, max_tokens: int = MAX_CONTEXT_TOKENS) -> str:
+        """Truncate evidence text to fit within token limit."""
+        text = evidence.to_text()
+        tokens = encode_string_by_tiktoken(text)
+        if len(tokens) <= max_tokens:
+            return text
+        return tokens_to_text(tokens[:max_tokens])
     
-    def generate(self, query: str, evidence: EvidenceGraph, 
-                 battery_model: str, context: Optional[list[str]] = None) -> dict:
+    def generate(self, query: str, evidence: EvidenceGraph,
+                 battery_model: str, context: Optional[list[str]] = None,
+                 kg_context: str = None) -> dict:
         context_str = ', '.join(context) if context else '无'
-        evidence_text = evidence.to_text()
-        
+        evidence_text = self._truncate_evidence(evidence)
+        kg_info = kg_context if kg_context else evidence_text
+
         prompt = f'''任务: 为电池型号 {battery_model} 生成拆卸方案
+
 用户查询: {query}
 工作环境上下文: {context_str}
 
-参考证据:
-{evidence_text}
+{kg_info}
+
+【重要提示】
+拆卸顺序规则：
+1. 先拆上壳体(upper housing)、下壳体(lower housing)、绝缘层(insulator)等外层保护部件
+2. 最后拆电芯(cells, modules, CMC) 和核心部件
+3. 每一步需要说明依赖的前置步骤（如：必须先拆X才能拆Y）
 
 请生成拆卸步骤列表，格式如下:
-- 步骤序号
-- 部件名称
-- 具体操作
-- 所需工具
-- 安全等级
-- 证据来源
+- 步骤序号 (id)
+- 部件名称 (component) - 英文名称
+- 具体操作 (action) - 描述如何拆卸
+- 所需工具 (tool) - 列出所需工具
+- 安全等级 (safety_level) - 1-5的数字
+- 依赖步骤 (depends_on) - 哪些步骤必须先完成
 
-请以JSON数组格式返回，每个元素包含: id, component, action, tool, safety_level, evidence'''
+请以JSON格式返回，包含steps数组，每个元素包含: id, component, action, tool, safety_level, depends_on'''
 
         try:
             result = self.llm.generate_json(prompt, ['steps'])

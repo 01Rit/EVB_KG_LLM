@@ -1,4 +1,4 @@
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 import os
 
 
@@ -10,9 +10,9 @@ class Settings(BaseSettings):
     milvus_port: int = 19530
     openai_api_key: str = ''
     openai_base_url: str = 'https://api.openai.com/v1'
+    llm_model: str = 'gpt-4o'
     log_level: str = 'INFO'
 
-    model: str = 'gpt-4o'
     temperature: float = 0.1
     max_tokens: int = 2000
 
@@ -28,5 +28,7 @@ class Settings(BaseSettings):
 
 settings = Settings(
     neo4j_password=os.getenv('NEO4J_PASSWORD', ''),
-    openai_api_key=os.getenv('OPENAI_API_KEY', '')
+    openai_api_key=os.getenv('OPENAI_API_KEY', ''),
+    openai_base_url=os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+    llm_model=os.getenv('LLM_MODEL', 'gpt-4o')
 )

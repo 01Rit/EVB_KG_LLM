@@ -1,7 +1,10 @@
 from src.kg.models import EvidenceNode
+from src.utils.tokenizer import truncate_by_token_size
 import logging
 
 logger = logging.getLogger(__name__)
+
+MAX_EVIDENCE_TOKENS = 4000
 
 
 class EvidenceRanker:
@@ -11,6 +14,9 @@ class EvidenceRanker:
         self.recency_weight = recency_weight
     
     def rank(self, nodes: list[EvidenceNode], query: str) -> list[EvidenceNode]:
+        if not nodes:
+            return []
+
         scored = []
         
         for node in nodes:
@@ -28,9 +34,15 @@ class EvidenceRanker:
         
         sorted_nodes = sorted(scored, key=lambda x: x[1], reverse=True)
         ranked = [node for node, score in sorted_nodes]
+
+        truncated = truncate_by_token_size(
+            ranked,
+            key=lambda n: n.text,
+            max_token_size=MAX_EVIDENCE_TOKENS
+        )
         
-        logger.info(f'Ranked {len(ranked)} evidence nodes')
-        return ranked
+        logger.info(f'Ranked {len(ranked)} evidence nodes, truncated to {len(truncated)}')
+        return truncated
     
     def _calculate_text_score(self, node: EvidenceNode, query: str) -> float:
         query_lower = query.lower()

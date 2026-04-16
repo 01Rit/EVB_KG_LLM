@@ -19,7 +19,7 @@ class Neo4jClient:
     @property
     def driver(self):
         if self._driver is None:
-            self._driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password)
+            self._driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
         return self._driver
 
     def close(self):
@@ -53,11 +53,50 @@ class Neo4jClient:
         cypher = '''
         MATCH (c:Component)
         WHERE c.name CONTAINS $query OR c.battery_model CONTAINS $query
-        RETURN c.id as id, c.name as name, c.battery_model as battery_model,
+        RETURN COALESCE(c.id, c.name) as id, c.name as name, c.battery_model as battery_model,
                c.tool_required as tool_required, c.safety_level as safety_level
         LIMIT $top_k
         '''
         return self.execute_query(cypher, {'query': query, 'top_k': top_k})
+
+    def get_all_components(self, battery_model: str = None, top_k: int = 100) -> list[dict]:
+        if battery_model:
+            cypher = '''
+            MATCH (c:Component {battery_model: $battery_model})
+            RETURN COALESCE(c.id, c.name) as id, c.name as name, c.battery_model as battery_model,
+                   c.tool_required as tool_required, c.safety_level as safety_level,
+                   c.source_type as source_type
+            LIMIT $top_k
+            '''
+            return self.execute_query(cypher, {'battery_model': battery_model, 'top_k': top_k})
+        else:
+            cypher = '''
+            MATCH (c:Component)
+            RETURN COALESCE(c.id, c.name) as id, c.name as name, c.battery_model as battery_model,
+                   c.tool_required as tool_required, c.safety_level as safety_level,
+                   c.source_type as source_type
+            LIMIT $top_k
+            '''
+            return self.execute_query(cypher, {'top_k': top_k})
+
+    def get_all_relations(self, battery_model: str = None) -> list[dict]:
+        if battery_model:
+            cypher = '''
+            MATCH (c1:Component)-[r]->(c2:Component)
+            WHERE c1.battery_model = $battery_model OR c2.battery_model = $battery_model
+            RETURN c1.name as head, type(r) as relation, c2.name as tail,
+                   r.head_tool as head_tool, r.head_safety as head_safety,
+                   r.tail_tool as tail_tool, r.tail_safety as tail_safety
+            '''
+            return self.execute_query(cypher, {'battery_model': battery_model})
+        else:
+            cypher = '''
+            MATCH (c1:Component)-[r]->(c2:Component)
+            RETURN c1.name as head, type(r) as relation, c2.name as tail,
+                   r.head_tool as head_tool, r.head_safety as head_safety,
+                   r.tail_tool as tail_tool, r.tail_safety as tail_safety
+            '''
+            return self.execute_query(cypher, {})
     
     def search_documents(self, query: str, top_k: int = 30) -> list[dict]:
         cypher = '''
@@ -121,11 +160,54 @@ class Neo4jClient:
     def get_battery_model_components(self, battery_model: str) -> list[dict]:
         cypher = '''
         MATCH (c:Component {battery_model: $model})
-        RETURN c.id as id, c.name as name, c.tool_required as tool_required,
+        RETURN COALESCE(c.id, c.name) as id, c.name as name, c.tool_required as tool_required,
                c.safety_level as safety_level
         ORDER BY c.name
         '''
         return self.execute_query(cypher, {'model': battery_model})
+
+    def detect_communities(self, level: int = 2) -> list[dict]:
+        """Detect communities using Louvain algorithm."""
+        try:
+            import networkx as nx
+            from community import community_louvain
+        except ImportError:
+            logger.warning("networkx or python-louvain not installed, returning empty")
+            return []
+
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (n)-[r]->(m)
+                RETURN n.id AS source, m.id AS target
+            """)
+            edges = [(record['source'], record['target']) for record in result]
+
+        if not edges:
+            return []
+
+        G = nx.Graph()
+        G.add_edges_from(edges)
+
+        partition = community_louvain.best_partition(G)
+
+        communities = {}
+        for node, comm_id in partition.items():
+            if comm_id not in communities:
+                communities[comm_id] = []
+            communities[comm_id].append(node)
+
+        return [{'id': cid, 'nodes': nodes, 'level': level} for cid, nodes in communities.items()]
+
+    def get_subgraph_nodes(self, node_ids: list[str]) -> list[dict]:
+        """Get node details for a list of node IDs."""
+        if not node_ids:
+            return []
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (n) WHERE n.id IN $ids
+                RETURN n.id AS id, labels(n) AS labels, properties(n) AS props
+            """, ids=node_ids)
+            return [dict(record) for record in result]
 
 
 class MilvusClient:

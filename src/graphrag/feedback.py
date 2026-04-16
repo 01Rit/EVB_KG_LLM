@@ -56,6 +56,6 @@ class FeedbackLoop:
     async def _retrieve_missing(self, missing_items: list[str]) -> list:
         all_nodes = []
         for item in missing_items:
-            components = await self.retriever._retrieve_components(item, 5)
+            components = self.retriever._retrieve_components(item, 5)
             all_nodes.extend(components)
         return all_nodes

@@ -10,7 +10,7 @@ interface Stats {
 
 export function Dashboard() {
   const [stats, setStats] = useState<Stats>({ components: 0, documents: 0, terms: 0 })
-  const [history, setHistory] = useState<any[]>([])
+  const [history] = useState<any[]>([])
   const navigate = useNavigate()
 
   useEffect(() => {

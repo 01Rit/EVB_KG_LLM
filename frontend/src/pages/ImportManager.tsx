@@ -100,13 +100,18 @@ export function ImportManager() {
     if (!file) return
 
     setUploading(true)
+    setMessage('')
     try {
       const formData = new FormData()
-      formData.append('file', file)
+      const blob = new Blob([await file.arrayBuffer()], { type: 'application/pdf' })
+      const safeFile = new File([blob], encodeURIComponent(file.name), { type: 'application/pdf' })
+      formData.append('file', safeFile)
       const res = await importApi.importL2(formData)
       setMessage(`文档已导入，DocID: ${res.data.doc_id}`)
-    } catch (error) {
-      setMessage('L2导入失败')
+    } catch (error: unknown) {
+      console.error('L2 import error:', error)
+      const errMsg = error instanceof Error ? error.message : 'L2导入失败'
+      setMessage(errMsg)
     } finally {
       setUploading(false)
     }

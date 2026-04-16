@@ -45,6 +45,9 @@ export interface QueryTrace {
   evidence_count: number
   iteration_count: number
   timing: Record<string, number>
+  retrieval_nodes?: number
+  all_components_count?: number
+  all_relations_count?: number
 }
 
 export interface SequenceResponse {
