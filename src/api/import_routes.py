@@ -141,71 +141,93 @@ async def import_l1_txt(file: UploadFile = File(...)):
 
     text = content.decode('utf-8')
 
-    components = []
-    current = {}
-
-    for line in text.split('\n'):
-        line = line.strip()
-        if line.startswith('[组件'):
-            if current:
-                components.append(current)
-            current = {}
-        elif ':' in line:
-            key, value = line.split(':', 1)
-            key = key.strip()
-            value = value.strip()
-            current[key] = value
-
-    if current:
-        components.append(current)
-
+    from src.importer.entity_extractor import EntityExtractor
     from src.kg.client import Neo4jClient
+    from src.utils.llm_client import LLMClient
     from src.config import settings
 
     neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
-
-    success = 0
-    errors = []
+    llm = LLMClient(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        model=settings.llm_model
+    )
 
     try:
-        for comp in components:
+        extractor = EntityExtractor(llm)
+        triplets = extractor.extract_triplets(text, filename=file.filename or '')
+
+        battery_model = None
+        if triplets and 'battery_model' in triplets[0]:
+            battery_model = triplets[0]['battery_model']
+
+        nodes_created = 0
+        relations_created = 0
+        errors = []
+
+        existing_nodes = {}
+        for t in triplets:
+            if t.get('head'):
+                existing_nodes[t['head']] = battery_model
+            if t.get('tail'):
+                existing_nodes[t['tail']] = battery_model
+
+        for node_name, node_battery_model in existing_nodes.items():
+            cypher = '''
+            MERGE (n:Component {name: $name})
+            SET n.source_type = 'l1_txt_import'
+            SET n.battery_model = COALESCE($battery_model, 'unknown')
+            RETURN n
+            '''
             try:
-                name = comp.get('名称', comp.get('name', ''))
-                battery_model = comp.get('型号', comp.get('battery_model', ''))
-                tools_str = comp.get('工具', comp.get('tool_required', ''))
-                safety_level = int(comp.get('安全等级', comp.get('safety_level', 1)))
-                precedence_str = comp.get('依赖', comp.get('precedence', ''))
+                neo4j.execute_query(cypher, {'name': node_name, 'battery_model': node_battery_model})
+                nodes_created += 1
+            except Exception as e:
+                errors.append(f"Node error: {str(e)}")
 
-                tools = [t.strip() for t in tools_str.split(',') if t.strip()]
-                precedence = [p.strip() for p in precedence_str.split(';') if p.strip()]
+        for t in triplets:
+            head = t.get('head', '')
+            relation = t.get('relation', '')
+            tail = t.get('tail', '')
+            head_tool = t.get('head_tool', '')
+            head_safety = t.get('head_safety', 1)
+            tail_tool = t.get('tail_tool', '')
+            tail_safety = t.get('tail_safety', 1)
 
-                cypher = '''
-                CREATE (c:Component {
-                    id: $id,
-                    name: $name,
-                    battery_model: $battery_model,
-                    tool_required: $tool_required,
-                    safety_level: $safety_level,
-                    precedence: $precedence,
-                    source_type: 'manual'
-                })
-                '''
+            if not head or not relation or not tail:
+                continue
 
+            cypher = '''
+            MATCH (h:Component {name: $head})
+            MATCH (t:Component {name: $tail})
+            MERGE (h)-[r:RELATES {type: $relation}]->(t)
+            SET r.head_tool = $head_tool
+            SET r.head_safety = $head_safety
+            SET r.tail_tool = $tail_tool
+            SET r.tail_safety = $tail_safety
+            RETURN h, r, t
+            '''
+            try:
                 neo4j.execute_query(cypher, {
-                    'id': str(uuid.uuid4()),
-                    'name': name,
-                    'battery_model': battery_model,
-                    'tool_required': str(tools),
-                    'safety_level': safety_level,
-                    'precedence': str(precedence)
+                    'head': head,
+                    'relation': relation,
+                    'tail': tail,
+                    'head_tool': head_tool,
+                    'head_safety': head_safety,
+                    'tail_tool': tail_tool,
+                    'tail_safety': tail_safety
                 })
+                relations_created += 1
+            except Exception as e:
+                errors.append(f"Relation error: {str(e)}")
 
-                success += 1
-
-            except (ValueError, KeyError, RuntimeError) as e:
-                errors.append(f'Component {name}: {str(e)}')
-
-        return {'code': 0, 'message': f'Imported {success} components', 'errors': errors}
+        return {
+            'code': 0,
+            'message': f'Imported {nodes_created} entities, {relations_created} relations',
+            'nodes': nodes_created,
+            'relations': relations_created,
+            'errors': errors[:10]
+        }
     finally:
         neo4j.close()
 
@@ -238,39 +260,74 @@ async def import_l1_pdf(file: UploadFile = File(...)):
     from src.utils.llm_client import LLMClient
     from src.config import settings
 
-    llm = LLMClient(settings.openai_api_key, settings.openai_base_url)
+    llm = LLMClient(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        model=settings.llm_model
+    )
     extractor = EntityExtractor(llm)
 
-    components = extractor.extract_components(full_text)
+    triplets = extractor.extract_triplets(full_text)
 
     from src.kg.client import Neo4jClient
 
     neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
 
     try:
-        for comp in components:
+        nodes_created = 0
+        relations_created = 0
+        errors = []
+
+        existing_nodes = set()
+        for t in triplets:
+            if t.get('head'):
+                existing_nodes.add(t['head'])
+            if t.get('tail'):
+                existing_nodes.add(t['tail'])
+
+        for node_name in existing_nodes:
             cypher = '''
-            CREATE (c:Component {
-                id: $id,
-                name: $name,
-                battery_model: $battery_model,
-                tool_required: $tool_required,
-                safety_level: $safety_level,
-                precedence: $precedence,
-                source_type: 'pdf_import'
-            })
+            MERGE (n:Entity {name: $name})
+            SET n.source_type = 'l1_import'
+            RETURN n
             '''
+            try:
+                neo4j.execute_query(cypher, {'name': node_name})
+                nodes_created += 1
+            except Exception as e:
+                errors.append(f"Node error: {str(e)}")
 
-            neo4j.execute_query(cypher, {
-                'id': str(uuid.uuid4()),
-                'name': comp.get('name', ''),
-                'battery_model': comp.get('category', ''),
-                'tool_required': str(comp.get('tools', [])),
-                'safety_level': comp.get('safety_level', 1),
-                'precedence': str(comp.get('dependencies', []))
-            })
+        for t in triplets:
+            head = t.get('head', '')
+            relation = t.get('relation', '')
+            tail = t.get('tail', '')
 
-        return {'code': 0, 'message': f'Extracted {len(components)} components from PDF'}
+            if not head or not relation or not tail:
+                continue
+
+            cypher = '''
+            MATCH (h:Entity {name: $head})
+            MATCH (t:Entity {name: $tail})
+            MERGE (h)-[r:RELATES {type: $relation}]->(t)
+            RETURN h, r, t
+            '''
+            try:
+                neo4j.execute_query(cypher, {
+                    'head': head,
+                    'relation': relation,
+                    'tail': tail
+                })
+                relations_created += 1
+            except Exception as e:
+                errors.append(f"Relation error: {str(e)}")
+
+        return {
+            'code': 0,
+            'message': f'Imported {nodes_created} entities, {relations_created} relations',
+            'nodes': nodes_created,
+            'relations': relations_created,
+            'errors': errors[:10]
+        }
     finally:
         neo4j.close()
 
@@ -297,28 +354,113 @@ async def import_l2(file: UploadFile = File(...)):
             full_text += page.get_text()
         doc.close()
     finally:
-        os.unlink(tmp_path)
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
-    from src.importer.importer import DataImporter
+    if not full_text.strip():
+        raise HTTPException(status_code=400, detail='PDF is empty or could not extract text')
+
+    from src.importer.entity_extractor import EntityExtractor
     from src.kg.client import Neo4jClient
     from src.utils.llm_client import LLMClient
     from src.config import settings
 
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=500, detail='OpenAI API key not configured')
+
     neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
-    llm = LLMClient(settings.openai_api_key, settings.openai_base_url)
+    llm = LLMClient(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        model=settings.llm_model
+    )
 
     try:
-        importer = DataImporter(neo4j, llm)
+        extractor = EntityExtractor(llm)
+        
+        try:
+            triplets = extractor.extract_triplets(full_text, filename=file.filename or '')
+        except Exception as e:
+            logger.error(f"LLM extraction failed: {e}")
+            raise HTTPException(status_code=500, detail=f'LLM extraction failed: {str(e)}')
 
-        result = importer.import_pdf(tmp_path)
+        doc_cypher = '''
+        CREATE (d:Document {
+            doc_id: $doc_id,
+            title: $title,
+            content: $content,
+            source_type: 'l2_import'
+        })
+        RETURN d
+        '''
+        doc_id = str(uuid.uuid4())
+        neo4j.execute_query(doc_cypher, {
+            'doc_id': doc_id,
+            'title': file.filename or 'unknown',
+            'content': full_text[:50000]
+        })
+
+        nodes_created = 0
+        relations_created = 0
+        errors = []
+
+        existing_nodes = set()
+        for t in triplets:
+            if t.get('head'):
+                existing_nodes.add(t['head'])
+            if t.get('tail'):
+                existing_nodes.add(t['tail'])
+
+        for node_name in existing_nodes:
+            cypher = '''
+            MERGE (n:Entity {name: $name})
+            SET n.doc_id = $doc_id
+            RETURN n
+            '''
+            try:
+                neo4j.execute_query(cypher, {'name': node_name, 'doc_id': doc_id})
+                nodes_created += 1
+            except Exception as e:
+                errors.append(f"Node error: {str(e)}")
+
+        for t in triplets:
+            head = t.get('head', '')
+            relation = t.get('relation', '')
+            tail = t.get('tail', '')
+
+            if not head or not relation or not tail:
+                continue
+
+            cypher = '''
+            MATCH (h:Entity {name: $head})
+            MATCH (t:Entity {name: $tail})
+            MERGE (h)-[r:RELATES {type: $relation, doc_id: $doc_id}]->(t)
+            RETURN h, r, t
+            '''
+            try:
+                neo4j.execute_query(cypher, {
+                    'head': head,
+                    'relation': relation,
+                    'tail': tail,
+                    'doc_id': doc_id
+                })
+                relations_created += 1
+            except Exception as e:
+                errors.append(f"Relation error: {str(e)}")
 
         return {
             'code': 0,
-            'message': f'Document imported',
-            'doc_id': result.doc_id,
-            'components': result.components,
-            'terms': result.terms
+            'message': f'Document imported with {nodes_created} entities, {relations_created} relations',
+            'doc_id': doc_id,
+            'nodes': nodes_created,
+            'relations': relations_created,
+            'errors': errors[:10]
         }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"L2 import failed: {e}")
+        raise HTTPException(status_code=500, detail=f'L2 import failed: {str(e)}')
     finally:
         neo4j.close()
 
