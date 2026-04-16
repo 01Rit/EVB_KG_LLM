@@ -9,7 +9,7 @@ def test_encode_returns_list():
 def test_truncate_respects_max_tokens():
     long_text = " ".join(["word"] * 1000)
     result = truncate_by_token_size([long_text, long_text], key=lambda x: x, max_token_size=50)
-    assert len(result) <= 2
+    assert len(result) < 2, f"Expected truncation but got {len(result)} items"
 
 def test_truncate_empty_list():
     result = truncate_by_token_size([], key=lambda x: x, max_token_size=100)
