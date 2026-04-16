@@ -2,8 +2,13 @@ from openai import OpenAI
 from typing import Optional
 import logging
 import json
+import hashlib
 
 logger = logging.getLogger(__name__)
+
+
+def compute_args_hash(*args) -> str:
+    return hashlib.md5(json.dumps(args, sort_keys=True).encode()).hexdigest()
 
 
 class LLMClient:
@@ -13,9 +18,14 @@ class LLMClient:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self._cache = {}
     
     def generate(self, prompt: str, system_message: Optional[str] = None,
                  response_format: Optional[dict] = None) -> str:
+        cache_key = compute_args_hash(prompt, system_message, json.dumps(response_format, sort_keys=True) if response_format else None)
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+        
         messages = []
         if system_message:
             messages.append({'role': 'system', 'content': system_message})
@@ -32,7 +42,9 @@ class LLMClient:
         
         try:
             response = self.client.chat.completions.create(**kwargs)
-            return response.choices[0].message.content
+            result = response.choices[0].message.content
+            self._cache[cache_key] = result
+            return result
         except Exception as e:
             logger.error(f'LLM generation failed: {e}')
             raise
@@ -47,3 +59,6 @@ class LLMClient:
             return json.loads(result)
         except json.JSONDecodeError:
             return {'error': 'Failed to parse JSON', 'raw': result}
+    
+    def clear_cache(self) -> None:
+        self._cache.clear()
