@@ -1,11 +1,13 @@
 from src.kg.client import Neo4jClient
 from src.importer.entity_extractor import EntityExtractor
 from src.utils.llm_client import LLMClient
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List
 import uuid
 import logging
 
 logger = logging.getLogger(__name__)
+
+MAX_CONTENT_LENGTH = 50000
 
 
 class L2Importer:
@@ -34,6 +36,8 @@ class L2Importer:
         }
 
     def _create_l2_document(self, doc_id: str, filename: str, full_text: str) -> None:
+        if len(full_text) > MAX_CONTENT_LENGTH:
+            logger.warning(f"Content truncated from {len(full_text)} to {MAX_CONTENT_LENGTH} characters for doc_id {doc_id}")
         cypher = '''
         CREATE (d:L2_Document {
             doc_id: $doc_id,
@@ -47,7 +51,7 @@ class L2Importer:
             'doc_id': doc_id,
             'name': filename or 'unknown',
             'source': filename or 'unknown',
-            'content': full_text[:50000]
+            'content': full_text[:MAX_CONTENT_LENGTH]
         })
 
     def _create_l2_entities(self, doc_id: str, entities: List[Dict]) -> int:
@@ -110,64 +114,54 @@ class L2Importer:
         """Create DEFINED_AS for definition-type entities, USES_TOOL for tool-using entities."""
         relations = 0
 
-        entity_names = {e.get('name') for e in entities if e.get('entity_type') == 'definition'}
-        for term in terms:
-            term_name = term.get('name', '')
-            if term_name in entity_names:
-                cypher = '''
-                MATCH (e:L2_Entity {name: $entity_name, doc_id: $doc_id})
-                MATCH (t:L3_Term {name: $term_name, source_document_id: $doc_id})
-                MERGE (e)-[r:DEFINED_AS]->(t)
-                RETURN count(r) as cnt
-                '''
-                result = self.neo4j.execute_query(cypher, {
-                    'entity_name': term_name,
-                    'term_name': term_name,
-                    'doc_id': doc_id
-                })
-                relations += result[0].get('cnt', 0) if result else 0
-
-        tool_entities = [e for e in entities if e.get('entity_type') == 'tool']
-        component_entities = [e for e in entities if e.get('entity_type') == 'component']
-        for comp in component_entities:
-            for tool in tool_entities:
-                cypher = '''
-                MATCH (c:L2_Entity {name: $comp_name, doc_id: $doc_id})
-                MATCH (t:L2_Entity {name: $tool_name, doc_id: $doc_id})
-                MERGE (c)-[r:USES_TOOL]->(t)
-                RETURN count(r) as cnt
-                '''
-                result = self.neo4j.execute_query(cypher, {
-                    'comp_name': comp.get('name'),
-                    'tool_name': tool.get('name'),
-                    'doc_id': doc_id
-                })
-                relations += result[0].get('cnt', 0) if result else 0
-
-        for term in terms:
+        definition_entity_names = {e.get('name') for e in entities if e.get('entity_type') == 'definition'}
+        definition_terms = [t for t in terms if t.get('name') in definition_entity_names]
+        if definition_terms:
             cypher = '''
-            MATCH (t:L3_Term {name: $name, source_document_id: $doc_id})
-            MATCH (d:L2_Document {doc_id: $doc_id})
-            MERGE (t)-[r:ORIGINATED_FROM]->(d)
-            RETURN count(r) as cnt
+            MATCH (e:L2_Entity)
+            MATCH (t:L3_Term)
+            WHERE e.doc_id = $doc_id AND t.source_document_id = $doc_id
+            AND e.entity_type = 'definition' AND e.name = t.name
+            MERGE (e)-[:DEFINED_AS]->(t)
+            RETURN count(*) as cnt
             '''
-            result = self.neo4j.execute_query(cypher, {
-                'name': term.get('name'),
-                'doc_id': doc_id
-            })
+            result = self.neo4j.execute_query(cypher, {'doc_id': doc_id})
             relations += result[0].get('cnt', 0) if result else 0
 
-        for entity in entities:
+        tool_entities = [e.get('name') for e in entities if e.get('entity_type') == 'tool']
+        component_entities = [e.get('name') for e in entities if e.get('entity_type') == 'component']
+        if tool_entities and component_entities:
             cypher = '''
-            MATCH (e:L2_Entity {name: $name, doc_id: $doc_id})
-            MATCH (d:L2_Document {doc_id: $doc_id})
-            MERGE (e)-[r:REFERENCED_IN]->(d)
-            RETURN count(r) as cnt
+            MATCH (c:L2_Entity)
+            MATCH (t:L2_Entity)
+            WHERE c.doc_id = $doc_id AND t.doc_id = $doc_id
+            AND c.entity_type = 'component' AND t.entity_type = 'tool'
+            MERGE (c)-[:USES_TOOL]->(t)
+            RETURN count(*) as cnt
             '''
-            result = self.neo4j.execute_query(cypher, {
-                'name': entity.get('name'),
-                'doc_id': doc_id
-            })
+            result = self.neo4j.execute_query(cypher, {'doc_id': doc_id})
+            relations += result[0].get('cnt', 0) if result else 0
+
+        if terms:
+            cypher = '''
+            MATCH (t:L3_Term)
+            MATCH (d:L2_Document {doc_id: $doc_id})
+            WHERE t.source_document_id = $doc_id
+            MERGE (t)-[:ORIGINATED_FROM]->(d)
+            RETURN count(*) as cnt
+            '''
+            result = self.neo4j.execute_query(cypher, {'doc_id': doc_id})
+            relations += result[0].get('cnt', 0) if result else 0
+
+        if entities:
+            cypher = '''
+            MATCH (e:L2_Entity)
+            MATCH (d:L2_Document {doc_id: $doc_id})
+            WHERE e.doc_id = $doc_id
+            MERGE (e)-[:REFERENCED_IN]->(d)
+            RETURN count(*) as cnt
+            '''
+            result = self.neo4j.execute_query(cypher, {'doc_id': doc_id})
             relations += result[0].get('cnt', 0) if result else 0
 
         return relations
