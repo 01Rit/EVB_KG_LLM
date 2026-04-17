@@ -198,6 +198,20 @@ class Neo4jClient:
 
         return [{'id': cid, 'nodes': nodes, 'level': level} for cid, nodes in communities.items()]
 
+    def update_component_properties(self, component_name: str, properties: dict) -> bool:
+        """Update component node properties in Neo4j."""
+        cypher = '''
+        MATCH (c:Component {name: $name})
+        SET c += $props
+        RETURN c
+        '''
+        try:
+            result = self.execute_query(cypher, {'name': component_name, 'props': properties})
+            return len(result) > 0
+        except Exception as e:
+            logger.error(f"Failed to update component {component_name}: {e}")
+            return False
+
     def get_subgraph_nodes(self, node_ids: list[str]) -> list[dict]:
         """Get node details for a list of node IDs."""
         if not node_ids:
