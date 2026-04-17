@@ -111,3 +111,48 @@ async def list_components():
         ) for r in results]
     finally:
         neo4j.close()
+
+
+class ScoreAllL1Request(BaseModel):
+    battery_model: Optional[str] = None
+
+
+class ScoreResultResponse(BaseModel):
+    component: str
+    h_score: float
+    s_score: float
+    as_score: float
+    human_loss: float
+    robot_loss: float
+    assignee: str
+
+
+@router.post('/api/v1/admin/components/score-all', response_model=List[ScoreResultResponse])
+async def score_all_l1_components(request: ScoreAllL1Request = ScoreAllL1Request()):
+    from src.kg.client import Neo4jClient
+    from src.utils.llm_client import LLMClient
+    from src.allocator.batch_scorer import BatchScorer
+    from src.config import settings
+
+    neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+    llm = LLMClient(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        model=settings.llm_model
+    )
+
+    try:
+        scorer = BatchScorer(llm, neo4j)
+        results = scorer.score_all_l1_components(battery_model=request.battery_model or '')
+
+        return [ScoreResultResponse(
+            component=r['component'],
+            h_score=r['h_score'],
+            s_score=r['s_score'],
+            as_score=r['as_score'],
+            human_loss=r['human_loss'],
+            robot_loss=r['robot_loss'],
+            assignee=r['assignee']
+        ) for r in results]
+    finally:
+        neo4j.close()
