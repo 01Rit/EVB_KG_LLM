@@ -26,4 +26,11 @@ def test_determine_assignee_human():
 
 def test_determine_assignee_cost_based():
     calculator = ASCalculator()
-    assert calculator.determine_assignee(0.5, robot_cost=100, human_cost=80) == 'human'
+    assert calculator.determine_assignee(0.5, human_loss=80, robot_loss=100) == 'human'
+
+
+def test_determine_assignee_uses_loss_diff():
+    calculator = ASCalculator()
+    assert calculator.determine_assignee(0.5, human_loss=80, robot_loss=100) == 'human'
+    assert calculator.determine_assignee(0.5, human_loss=100, robot_loss=80) == 'robot'
+    assert calculator.determine_assignee(0.5, human_loss=100, robot_loss=100) == 'robot'

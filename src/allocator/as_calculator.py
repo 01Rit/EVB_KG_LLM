@@ -35,11 +35,11 @@ class ASCalculator:
         return self.calculate_as(h_scores, s_scores)
 
     def determine_assignee(self, as_score: float,
-                         robot_cost: float = 100.0,
-                         human_cost: float = 80.0) -> str:
+                          human_loss: float = 80.0,
+                          robot_loss: float = 100.0) -> str:
         if as_score > 0.6:
             return 'robot'
         elif as_score < 0.4:
             return 'human'
         else:
-            return 'robot' if robot_cost < human_cost else 'human'
+            return 'human' if human_loss < robot_loss else 'robot'
