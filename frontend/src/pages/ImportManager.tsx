@@ -3,10 +3,85 @@ import { importApi } from '../api/client'
 
 type Tab = 'l1' | 'l2' | 'l3'
 
+const IMPORT_STEPS = [
+  { id: 'upload', label: '上传文件' },
+  { id: 'parse', label: '解析PDF' },
+  { id: 'extract', label: '提取实体 (LLM)' },
+  { id: 'create_nodes', label: '创建节点' },
+  { id: 'create_relations', label: '建立关系' },
+  { id: 'complete', label: '完成' },
+]
+
+interface ProgressState {
+  currentStep: number
+  status: 'idle' | 'processing' | 'success' | 'error'
+  message: string
+}
+
+function ProgressBar({ progress }: { progress: ProgressState }) {
+  const percentage = Math.round((progress.currentStep / (IMPORT_STEPS.length - 1)) * 100)
+
+  return (
+    <div style={{ marginTop: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px', color: '#666' }}>
+        <span>{progress.message || '等待开始...'}</span>
+        <span>{percentage}%</span>
+      </div>
+      <div style={{ height: '8px', backgroundColor: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
+        <div
+          style={{
+            height: '100%',
+            width: `${percentage}%`,
+            backgroundColor: progress.status === 'error' ? '#ef4444' : progress.status === 'success' ? '#22c55e' : '#3b82f6',
+            transition: 'width 0.3s ease',
+          }}
+        />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px' }}>
+        {IMPORT_STEPS.map((step, index) => (
+          <div
+            key={step.id}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              flex: 1,
+              opacity: index <= progress.currentStep ? 1 : 0.4,
+            }}
+          >
+            <div
+              style={{
+                width: '24px',
+                height: '24px',
+                borderRadius: '50%',
+                backgroundColor: index < progress.currentStep ? '#22c55e' : index === progress.currentStep ? '#3b82f6' : '#e5e7eb',
+                color: 'white',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '12px',
+                fontWeight: 'bold',
+              }}
+            >
+              {index < progress.currentStep ? '✓' : index + 1}
+            </div>
+            <span style={{ fontSize: '11px', marginTop: '4px', textAlign: 'center' }}>{step.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function ImportManager() {
   const [activeTab, setActiveTab] = useState<Tab>('l1')
   const [uploading, setUploading] = useState(false)
   const [message, setMessage] = useState('')
+  const [l2Progress, setL2Progress] = useState<ProgressState>({
+    currentStep: 0,
+    status: 'idle',
+    message: '',
+  })
 
   const [l1Form, setL1Form] = useState({
     name: '',
@@ -101,17 +176,28 @@ export function ImportManager() {
 
     setUploading(true)
     setMessage('')
+    setL2Progress({ currentStep: 0, status: 'processing', message: '准备上传...' })
+
     try {
+      setL2Progress({ currentStep: 1, status: 'processing', message: '正在上传文件...' })
       const formData = new FormData()
       const blob = new Blob([await file.arrayBuffer()], { type: 'application/pdf' })
       const safeFile = new File([blob], encodeURIComponent(file.name), { type: 'application/pdf' })
       formData.append('file', safeFile)
+
+      setL2Progress({ currentStep: 2, status: 'processing', message: '正在解析PDF...' })
+      setL2Progress({ currentStep: 3, status: 'processing', message: '正在使用LLM提取实体和术语...' })
+
       const res = await importApi.importL2(formData)
+
+      setL2Progress({ currentStep: 4, status: 'processing', message: '正在创建节点和关系...' })
+      setL2Progress({ currentStep: 5, status: 'success', message: `导入完成！` })
       setMessage(`文档已导入，DocID: ${res.data.doc_id}`)
     } catch (error: unknown) {
       console.error('L2 import error:', error)
       const errMsg = error instanceof Error ? error.message : 'L2导入失败'
       setMessage(errMsg)
+      setL2Progress(prev => ({ ...prev, status: 'error', message: errMsg }))
     } finally {
       setUploading(false)
     }
@@ -235,6 +321,7 @@ export function ImportManager() {
           >
             选择PDF文件
           </button>
+          {(uploading || l2Progress.status !== 'idle') && <ProgressBar progress={l2Progress} />}
         </div>
       )}
 
