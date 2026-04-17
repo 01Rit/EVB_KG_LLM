@@ -19,6 +19,7 @@ interface ImportTask {
   progress: number
   message: string
   detail?: string
+  stage?: string
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -36,7 +37,7 @@ const STAGE_LABELS: Record<string, string> = {
 
 function ImportProgressCard({ task, onClose }: { task: ImportTask; onClose: () => void }) {
   const percentage = task.progress
-  const stageLabel = STAGE_LABELS[task.stage] || task.stage
+  const stageLabel = STAGE_LABELS[task.stage || ''] || task.stage || ''
 
   return (
     <div style={{
@@ -157,6 +158,8 @@ export function ImportManager() {
               const newProgress = Math.round((data.current / data.total) * 100)
               const newStatus = data.stage === 'completed' ? 'success'
                 : data.stage === 'error' ? 'error'
+                : data.stage === 'not_found' ? 'error'
+                : data.stage === 'timeout' ? 'error'
                 : 'processing'
 
               return {
@@ -175,10 +178,6 @@ export function ImportManager() {
 
         eventSource.onerror = () => {
           eventSource.close()
-          setActiveTasks(prev => prev.map(t => {
-            if (t.taskId !== task.taskId) return t
-            return { ...t, status: 'error', message: '连接中断' }
-          }))
         }
 
         eventSources[task.taskId] = eventSource
@@ -302,7 +301,6 @@ export function ImportManager() {
     }
   }
 
-  const processingTasks = activeTasks.filter(t => t.status === 'processing')
   const recentTasks = activeTasks.slice(-5).reverse()
 
   return (

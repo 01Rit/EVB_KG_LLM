@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 import json
+import asyncio
 import logging
 from src.api.progress import SyncProgressTracker, ProgressUpdate
 
@@ -28,17 +29,29 @@ async def stream_progress(task_id: str):
 
         try:
             task_info = SyncProgressTracker.get_task_info(task_id)
-            if task_info:
-                yield f"data: {json.dumps({'task_id': task_id, 'stage': 'subscribed', 'message': 'Connected to progress stream', 'total': task_info.get('total', 100)}, ensure_ascii=False)}\n\n"
+            if not task_info:
+                yield f"data: {json.dumps({'task_id': task_id, 'stage': 'not_found', 'message': 'Task not found or already completed', 'current': 100, 'total': 100}, ensure_ascii=False)}\n\n"
+                return
+
+            yield f"data: {json.dumps({'task_id': task_id, 'stage': 'subscribed', 'message': 'Connected to progress stream', 'total': task_info.get('total', 100)}, ensure_ascii=False)}\n\n"
+
+            start_time = asyncio.get_event_loop().time()
+            max_wait = 3600
 
             while True:
                 await asyncio.sleep(0.5)
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed > max_wait:
+                    yield f"data: {json.dumps({'task_id': task_id, 'stage': 'timeout', 'message': 'Connection timeout', 'current': 100, 'total': 100}, ensure_ascii=False)}\n\n"
+                    break
+
                 task_info = SyncProgressTracker.get_task_info(task_id)
                 if task_info:
-                    if task_info.get('stage') in ('completed', 'error'):
+                    stage = task_info.get('stage', '')
+                    if stage in ('completed', 'error', 'timeout', 'not_found'):
                         data = {
                             'task_id': task_id,
-                            'stage': task_info['stage'],
+                            'stage': stage,
                             'current': task_info.get('current', 0),
                             'total': task_info.get('total', 100),
                             'message': task_info.get('message', ''),
@@ -80,6 +93,3 @@ async def get_import_status(task_id: str):
             'detail': task_info.get('detail')
         }
     }
-
-
-import asyncio
