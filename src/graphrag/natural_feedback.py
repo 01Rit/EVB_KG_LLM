@@ -66,10 +66,60 @@ class NaturalLanguageFeedback:
         """重写查询为多个子查询"""
         return [question]
 
-    async def _retrieve_local(self, queries: List[str]) -> EvidenceGraph:
+    async def _retrieve_local(self, queries: List[str], battery_model: str = None) -> EvidenceGraph:
         """从本地知识图谱检索"""
-        evidence_graph = await self.retriever.retrieve(queries, battery_model=None)
+        all_nodes = []
+
+        for query in queries:
+            extracted_model = battery_model or self._extract_battery_model(query)
+
+            if extracted_model:
+                model_nodes = self.retriever.get_all_components(extracted_model, top_k=30)
+                all_nodes.extend(model_nodes)
+
+            component_nodes = self.retriever._retrieve_components(query, top_k=30)
+            document_nodes = self.retriever._retrieve_documents(query, top_k=30)
+            term_nodes = self.retriever._retrieve_terms(query, top_k=30)
+
+            all_nodes.extend(component_nodes)
+            all_nodes.extend(document_nodes)
+            all_nodes.extend(term_nodes)
+
+        deduplicated = self._deduplicate_nodes(all_nodes, top_k=30)
+
+        subgraph = self.retriever.neo4j.get_subgraph([n.id for n in deduplicated], depth=2)
+        evidence_graph = EvidenceGraph(nodes=deduplicated, edges=subgraph.get('edges', []))
+
+        logger.info(f'Retrieved {len(deduplicated)} nodes for {len(queries)} queries')
         return evidence_graph
+
+    def _extract_battery_model(self, query: str) -> Optional[str]:
+        """从查询中提取电池型号"""
+        import re
+
+        query_upper = query.upper()
+
+        if 'AUDI' in query_upper and 'A3' in query_upper:
+            return 'Audi_A3'
+        if 'TESLA' in query_upper and 'MODEL' in query_upper:
+            return 'Tesla_Model_3'
+        if 'BMW' in query_upper:
+            match = re.search(r'BMW[A-Z]\d{2,4}', query_upper.replace(' ', ''))
+            if match:
+                return match.group(0)
+        if 'NIO' in query_upper and 'ES' in query_upper:
+            match = re.search(r'ES\d+', query_upper)
+            if match:
+                return 'NIO_' + match.group(0)
+
+        return None
+
+    def _deduplicate_nodes(self, nodes: list, top_k: int = 30) -> list:
+        seen = {}
+        for node in nodes:
+            if node.id not in seen:
+                seen[node.id] = node
+        return list(seen.values())[:top_k]
 
     async def _retrieve_web(self, question: str) -> List[Dict]:
         """从网络检索"""
