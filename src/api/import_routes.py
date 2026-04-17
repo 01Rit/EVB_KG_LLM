@@ -360,7 +360,7 @@ async def import_l2(file: UploadFile = File(...)):
     if not full_text.strip():
         raise HTTPException(status_code=400, detail='PDF is empty or could not extract text')
 
-    from src.importer.entity_extractor import EntityExtractor
+    from src.importer.l2_importer import L2Importer
     from src.kg.client import Neo4jClient
     from src.utils.llm_client import LLMClient
     from src.config import settings
@@ -368,93 +368,25 @@ async def import_l2(file: UploadFile = File(...)):
     if not settings.openai_api_key:
         raise HTTPException(status_code=500, detail='OpenAI API key not configured')
 
-    neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
-    llm = LLMClient(
-        api_key=settings.openai_api_key,
-        base_url=settings.openai_base_url,
-        model=settings.llm_model
-    )
-
+    neo4j = None
     try:
-        extractor = EntityExtractor(llm)
-        
-        try:
-            triplets = extractor.extract_triplets(full_text, filename=file.filename or '')
-        except Exception as e:
-            logger.error(f"LLM extraction failed: {e}")
-            raise HTTPException(status_code=500, detail=f'LLM extraction failed: {str(e)}')
-
-        doc_cypher = '''
-        CREATE (d:Document {
-            doc_id: $doc_id,
-            title: $title,
-            content: $content,
-            source_type: 'l2_import'
-        })
-        RETURN d
-        '''
-        doc_id = str(uuid.uuid4())
-        neo4j.execute_query(doc_cypher, {
-            'doc_id': doc_id,
-            'title': file.filename or 'unknown',
-            'content': full_text[:50000]
-        })
-
-        nodes_created = 0
-        relations_created = 0
-        errors = []
-
-        existing_nodes = set()
-        for t in triplets:
-            if t.get('head'):
-                existing_nodes.add(t['head'])
-            if t.get('tail'):
-                existing_nodes.add(t['tail'])
-
-        for node_name in existing_nodes:
-            cypher = '''
-            MERGE (n:Entity {name: $name})
-            SET n.doc_id = $doc_id
-            RETURN n
-            '''
-            try:
-                neo4j.execute_query(cypher, {'name': node_name, 'doc_id': doc_id})
-                nodes_created += 1
-            except Exception as e:
-                errors.append(f"Node error: {str(e)}")
-
-        for t in triplets:
-            head = t.get('head', '')
-            relation = t.get('relation', '')
-            tail = t.get('tail', '')
-
-            if not head or not relation or not tail:
-                continue
-
-            cypher = '''
-            MATCH (h:Entity {name: $head})
-            MATCH (t:Entity {name: $tail})
-            MERGE (h)-[r:RELATES {type: $relation, doc_id: $doc_id}]->(t)
-            RETURN h, r, t
-            '''
-            try:
-                neo4j.execute_query(cypher, {
-                    'head': head,
-                    'relation': relation,
-                    'tail': tail,
-                    'doc_id': doc_id
-                })
-                relations_created += 1
-            except Exception as e:
-                errors.append(f"Relation error: {str(e)}")
+        neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+        llm = LLMClient(
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+            model=settings.llm_model
+        )
+        importer = L2Importer(neo4j, llm)
+        result = importer.import_pdf(full_text, file.filename or 'unknown')
 
         return {
             'code': 0,
-            'message': f'Document imported with {nodes_created} entities, {relations_created} relations',
-            'doc_id': doc_id,
-            'nodes': nodes_created,
-            'relations': relations_created,
-            'errors': errors[:10]
+            'message': f'L2 import completed: {result["entities_created"]} entities, {result["terms_created"]} terms, {result["relations_created"]} relations',
+            'doc_id': result['doc_id'],
+            'entities': result['entities_created'],
+            'terms': result['terms_created'],
+            'relations': result['relations_created'],
+            'errors': result.get('errors', [])
         }
     except HTTPException:
         raise
@@ -462,7 +394,8 @@ async def import_l2(file: UploadFile = File(...)):
         logger.error(f"L2 import failed: {e}")
         raise HTTPException(status_code=500, detail=f'L2 import failed: {str(e)}')
     finally:
-        neo4j.close()
+        if neo4j:
+            neo4j.close()
 
 
 @router.post('/import/l3')
