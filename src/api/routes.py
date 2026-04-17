@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from src.api.schemas import PlanRequest, PlanResponse, HealthResponse
@@ -114,3 +114,54 @@ async def generate_graph(request: GraphRequest):
     result = gen.generate(sequence, request.allocations)
 
     return {'code': 0, 'data': result.model_dump()}
+
+
+@router.get('/api/v1/battery-models')
+async def search_battery_models(
+    search: str = Query("", description="模糊搜索电池型号"),
+    include_stats: bool = Query(True, description="是否返回统计信息")
+):
+    """搜索电池型号，支持模糊匹配和统计信息返回"""
+    neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+
+    try:
+        if include_stats:
+            cypher = '''
+            MATCH (c:Component)
+            WHERE c.battery_model CONTAINS $search
+            WITH DISTINCT c.battery_model as model
+            OPTIONAL MATCH (comp:Component {battery_model: model})
+            WITH model, count(comp) as L1_components
+            OPTIONAL MATCH (comp:Component {battery_model: model})<-[:REFERENCED_IN|ORIGINATED_FROM*0..1]-(e)
+            WITH model, L1_components, count(DISTINCT e) as L2_entities
+            OPTIONAL MATCH (t:L3_Term)
+            WHERE t.source_document_id IN [model]
+            RETURN model, L1_components, L2_entities, 0 as L3_terms
+            LIMIT 20
+            '''
+            results = neo4j.execute_query(cypher, {'search': search})
+        else:
+            cypher = '''
+            MATCH (c:Component)
+            WHERE c.battery_model CONTAINS $search
+            RETURN DISTINCT c.battery_model as model
+            LIMIT 20
+            '''
+            results = neo4j.execute_query(cypher, {'search': search})
+
+        if include_stats:
+            data = [
+                {
+                    'model': r.get('model', ''),
+                    'L1_components': r.get('L1_components', 0),
+                    'L2_entities': r.get('L2_entities', 0),
+                    'L3_terms': r.get('L3_terms', 0)
+                }
+                for r in results
+            ]
+        else:
+            data = [{'model': r.get('model', '')} for r in results]
+
+        return {'code': 0, 'message': 'success', 'data': data}
+    finally:
+        neo4j.close()
