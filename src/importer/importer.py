@@ -3,6 +3,7 @@ from src.importer.pdf_parser import PDFParser
 from src.importer.entity_extractor import EntityExtractor
 from src.kg.client import Neo4jClient
 from src.utils.llm_client import LLMClient
+from src.allocator.batch_scorer import BatchScorer
 from typing import Optional, Dict, Any, List
 import logging
 import uuid
@@ -22,9 +23,11 @@ class ImportResult:
 class DataImporter:
     def __init__(self, neo4j_client: Neo4jClient, llm_client: LLMClient):
         self.neo4j = neo4j_client
+        self.llm = llm_client
         self.classifier = PathClassifier()
         self.parser = PDFParser()
         self.extractor = EntityExtractor(llm_client)
+        self.scorer = BatchScorer(llm_client, neo4j_client)
 
     def import_pdf(self, file_path: str) -> ImportResult:
         classification = self.classifier.classify(file_path)
@@ -164,7 +167,20 @@ class DataImporter:
                 'safety': component_data.get('safety_level', 1),
                 'precedence': str(component_data.get('precedence', []))
             })
-            return len(result) > 0
+
+            if len(result) > 0:
+                self._auto_score_component(component_data.get('name', ''), component_data.get('battery_model', ''))
+                return True
+            return False
         except Exception as e:
             logger.error(f"Promotion failed: {e}")
             return False
+
+    def _auto_score_component(self, component_name: str, battery_model: str) -> None:
+        """Automatically score a component using three-expert system."""
+        try:
+            logger.info(f"Auto-scoring component: {component_name}")
+            self.scorer.score_component(component_name, battery_model, '')
+            logger.info(f"Completed auto-scoring for: {component_name}")
+        except Exception as e:
+            logger.warning(f"Auto-scoring failed for {component_name}: {e}")

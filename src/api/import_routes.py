@@ -8,6 +8,26 @@ import uuid
 router = APIRouter()
 
 
+def _auto_score_component(component_name: str, battery_model: str, neo4j_client) -> None:
+    """Auto-score a component using three-expert system."""
+    try:
+        from src.allocator.batch_scorer import BatchScorer
+        from src.utils.llm_client import LLMClient
+        from src.config import settings
+
+        llm = LLMClient(
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+            model=settings.llm_model
+        )
+        scorer = BatchScorer(llm, neo4j_client)
+        scorer.score_component(component_name, battery_model, '')
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Auto-scoring failed for {component_name}: {e}")
+
+
 class L1ComponentData(BaseModel):
     name: str
     battery_model: str
@@ -54,6 +74,9 @@ async def import_l1_manual(data: L1ComponentData):
             'safety_level': data.safety_level,
             'precedence': str(data.precedence)
         })
+
+        if len(result) > 0:
+            _auto_score_component(data.name, data.battery_model, neo4j)
 
         return {'code': 0, 'message': 'Component imported successfully'}
     finally:
@@ -114,6 +137,7 @@ async def import_l1_csv(file: UploadFile = File(...)):
                     'precedence': str(precedence)
                 })
 
+                _auto_score_component(name, battery_model, neo4j)
                 success += 1
 
             except (ValueError, KeyError, RuntimeError) as e:
@@ -182,6 +206,8 @@ async def import_l1_txt(file: UploadFile = File(...)):
             try:
                 neo4j.execute_query(cypher, {'name': node_name, 'battery_model': node_battery_model})
                 nodes_created += 1
+                if node_battery_model and node_battery_model != 'unknown':
+                    _auto_score_component(node_name, node_battery_model, neo4j)
             except Exception as e:
                 errors.append(f"Node error: {str(e)}")
 

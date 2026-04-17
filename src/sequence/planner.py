@@ -78,14 +78,29 @@ class SequencePlanner:
         for step_num, comp_id in enumerate(sorted_ids, 1):
             comp = component_map.get(comp_id, {})
             time = self.time_estimator.estimate_from_component(comp)
-            steps.append({
+            step_data = {
                 'step': step_num,
                 'component': comp_id,
                 'component_name': comp.get('name', comp_id),
                 'time_seconds': time,
                 'tool_required': comp.get('tool_required', []),
                 'safety_level': comp.get('safety_level', 1)
-            })
+            }
+            if comp.get('as_score') is not None:
+                step_data['as_score'] = comp.get('as_score')
+            if comp.get('h_score') is not None:
+                step_data['h_score'] = comp.get('h_score')
+            if comp.get('s_score') is not None:
+                step_data['s_score'] = comp.get('s_score')
+            if comp.get('human_loss') is not None:
+                step_data['human_loss'] = comp.get('human_loss')
+            if comp.get('robot_loss') is not None:
+                step_data['robot_loss'] = comp.get('robot_loss')
+            if comp.get('loss_diff') is not None:
+                step_data['loss_diff'] = comp.get('loss_diff')
+            if comp.get('assignee') is not None:
+                step_data['assignee'] = comp.get('assignee')
+            steps.append(step_data)
 
         total_time = sum(s['time_seconds'] for s in steps)
 
@@ -107,7 +122,11 @@ class SequencePlanner:
         cypher = '''
         MATCH (c:Component {battery_model: $model})
         RETURN c.id as id, c.name as name, c.tool_required as tool_required,
-               c.safety_level as safety_level, c.precedence as precedence
+               c.safety_level as safety_level, c.precedence as precedence,
+               c.as_score as as_score, c.h_weighted_score as h_score,
+               c.s_weighted_score as s_score, c.human_loss as human_loss,
+               c.robot_loss as robot_loss, c.loss_diff as loss_diff,
+               c.assignee as assignee
         '''
 
         results = self.neo4j.execute_query(cypher, {'model': battery_model})
@@ -152,7 +171,14 @@ class SequencePlanner:
                 'tool_required': r.get('tool_required', []),
                 'safety_level': r.get('safety_level', 1),
                 'precedence': all_deps,
-                'dependencies': all_deps
+                'dependencies': all_deps,
+                'as_score': r.get('as_score'),
+                'h_score': r.get('h_score'),
+                's_score': r.get('s_score'),
+                'human_loss': r.get('human_loss'),
+                'robot_loss': r.get('robot_loss'),
+                'loss_diff': r.get('loss_diff'),
+                'assignee': r.get('assignee')
             })
 
         return components

@@ -65,7 +65,11 @@ class Neo4jClient:
             MATCH (c:Component {battery_model: $battery_model})
             RETURN COALESCE(c.id, c.name) as id, c.name as name, c.battery_model as battery_model,
                    c.tool_required as tool_required, c.safety_level as safety_level,
-                   c.source_type as source_type
+                   c.source_type as source_type,
+                   c.as_score as as_score, c.h_weighted_score as h_score,
+                   c.s_weighted_score as s_score, c.human_loss as human_loss,
+                   c.robot_loss as robot_loss, c.loss_diff as loss_diff,
+                   c.assignee as assignee
             LIMIT $top_k
             '''
             return self.execute_query(cypher, {'battery_model': battery_model, 'top_k': top_k})
@@ -74,7 +78,11 @@ class Neo4jClient:
             MATCH (c:Component)
             RETURN COALESCE(c.id, c.name) as id, c.name as name, c.battery_model as battery_model,
                    c.tool_required as tool_required, c.safety_level as safety_level,
-                   c.source_type as source_type
+                   c.source_type as source_type,
+                   c.as_score as as_score, c.h_weighted_score as h_score,
+                   c.s_weighted_score as s_score, c.human_loss as human_loss,
+                   c.robot_loss as robot_loss, c.loss_diff as loss_diff,
+                   c.assignee as assignee
             LIMIT $top_k
             '''
             return self.execute_query(cypher, {'top_k': top_k})
