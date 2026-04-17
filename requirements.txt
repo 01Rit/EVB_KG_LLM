@@ -13,3 +13,4 @@ httpx==0.26.0
 pyyaml==6.0.1
 python-multipart==0.0.9
 tiktoken==0.7.0
+PyMuPDF==1.23.0
