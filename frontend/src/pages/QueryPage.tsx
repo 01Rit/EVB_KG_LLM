@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import { batteryApi } from '../api/client'
 
 const CONTEXT_OPTIONS = [
   '室温环境',
@@ -17,10 +16,12 @@ const PROGRESS_STAGES = [
   { key: 'done', label: '完成' },
 ]
 
+const MAX_HISTORY = 5
+
 export function QueryPage() {
-  const [batteryModel, setBatteryModel] = useState('')
-  const [batteryModels, setBatteryModels] = useState<Array<{ model: string; L1_components: number; L2_entities: number; L3_terms: number }>>([])
-  const [showDropdown, setShowDropdown] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [queryHistory, setQueryHistory] = useState<string[]>([])
+  const [showHistory, setShowHistory] = useState(false)
   const [context, setContext] = useState<string[]>([])
   const [debug, setDebug] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -29,60 +30,62 @@ export function QueryPage() {
   const [useWebSearch, setUseWebSearch] = useState(false)
   const [progress, setProgress] = useState<{ stage: string; progress: number; message: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const dropdownRef = useRef<HTMLDivElement>(null)
+  const historyRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    const loadBatteryModels = async () => {
+    const saved = localStorage.getItem('queryHistory')
+    if (saved) {
       try {
-        const res = await batteryApi.search('')
-        if (res.data.code === 0) {
-          setBatteryModels(res.data.data)
-        }
-      } catch (err) {
-        console.error('Failed to load battery models:', err)
+        setQueryHistory(JSON.parse(saved))
+      } catch (e) {
+        console.error('Failed to load query history:', e)
       }
     }
-    loadBatteryModels()
   }, [])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setShowDropdown(false)
+      if (historyRef.current && !historyRef.current.contains(event.target as Node)) {
+        setShowHistory(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const handleBatterySearch = async (query: string) => {
-    setBatteryModel(query)
-    try {
-      const res = await batteryApi.search(query)
-      if (res.data.code === 0) {
-        setBatteryModels(res.data.data)
-        setShowDropdown(true)
-      }
-    } catch (err) {
-      console.error('Failed to search battery models:', err)
-    }
+  const addToHistory = (query: string) => {
+    const trimmed = query.trim()
+    if (!trimmed) return
+
+    setQueryHistory(prev => {
+      const filtered = prev.filter(q => q !== trimmed)
+      const newHistory = [trimmed, ...filtered].slice(0, MAX_HISTORY)
+      localStorage.setItem('queryHistory', JSON.stringify(newHistory))
+      return newHistory
+    })
   }
 
-  const selectBatteryModel = (model: string) => {
-    setBatteryModel(model)
-    setShowDropdown(false)
+  const selectHistoryItem = (item: string) => {
+    setSearchQuery(item)
+    setShowHistory(false)
+    inputRef.current?.focus()
   }
 
-const handleQuery = async () => {
+  const clearHistory = () => {
+    setQueryHistory([])
+    localStorage.removeItem('queryHistory')
+  }
+
+  const handleQuery = async () => {
+    const queryText = searchQuery.trim()
+    if (!queryText) return
+
     setLoading(true)
     setResult(null)
     setSources([])
     setProgress(null)
     setError(null)
-
-    const queryText = batteryModel.trim()
-      ? `${batteryModel}电池相关信息`
-      : '电池相关知识'
 
     try {
       const response = await fetch('/api/v1/query/feedback', {
@@ -126,6 +129,7 @@ const handleQuery = async () => {
               if (data.stage === 'done') {
                 setResult(data.answer || '')
                 setProgress({ stage: 'done', progress: 1, message: '完成' })
+                addToHistory(queryText)
               } else {
                 setProgress({
                   stage: data.stage,
@@ -156,17 +160,18 @@ const handleQuery = async () => {
       <h1 className="page-header">知识问答</h1>
 
       <div className="card">
-        <div style={{ marginBottom: '20px' }}>
+        <div style={{ marginBottom: '20px', position: 'relative' }} ref={historyRef}>
           <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold' }}>
-            限定知识范围（可选）
+            输入问题
           </label>
           <div style={{ position: 'relative' }}>
             <input
+              ref={inputRef}
               type="text"
-              value={batteryModel}
-              onChange={(e) => handleBatterySearch(e.target.value)}
-              onFocus={() => setShowDropdown(true)}
-              placeholder="搜索电池型号限定知识范围..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => setShowHistory(true)}
+              placeholder="输入您的问题..."
               disabled={loading}
               style={{
                 width: '100%',
@@ -176,7 +181,7 @@ const handleQuery = async () => {
                 fontSize: '16px',
               }}
             />
-            {showDropdown && batteryModels.length > 0 && (
+            {showHistory && queryHistory.length > 0 && (
               <div style={{
                 position: 'absolute',
                 top: '100%',
@@ -191,22 +196,42 @@ const handleQuery = async () => {
                 zIndex: 1000,
                 boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
               }}>
-                {batteryModels.map((item) => (
-                  <div
-                    key={item.model}
-                    onClick={() => selectBatteryModel(item.model)}
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '8px 12px',
+                  borderBottom: '1px solid #eee',
+                  backgroundColor: '#f8fafc',
+                }}>
+                  <span style={{ fontSize: '12px', color: '#666' }}>最近查询</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); clearHistory(); }}
                     style={{
-                      padding: '10px',
+                      fontSize: '12px',
+                      color: '#666',
+                      background: 'none',
+                      border: 'none',
                       cursor: 'pointer',
-                      borderBottom: '1px solid #eee',
+                      padding: '2px 6px',
+                    }}
+                  >
+                    清空
+                  </button>
+                </div>
+                {queryHistory.map((item, index) => (
+                  <div
+                    key={index}
+                    onClick={() => selectHistoryItem(item)}
+                    style={{
+                      padding: '10px 12px',
+                      cursor: 'pointer',
+                      borderBottom: index < queryHistory.length - 1 ? '1px solid #eee' : 'none',
                     }}
                     onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')}
                     onMouseLeave={(e) => (e.currentTarget.style.background = 'white')}
                   >
-                    <div style={{ fontWeight: 500 }}>{item.model}</div>
-                    <div style={{ fontSize: '12px', color: '#666' }}>
-                      L1: {item.L1_components} | L2: {item.L2_entities} | L3: {item.L3_terms}
-                    </div>
+                    <span style={{ fontSize: '14px' }}>{item}</span>
                   </div>
                 ))}
               </div>
@@ -285,7 +310,7 @@ const handleQuery = async () => {
 
         <button
           onClick={handleQuery}
-          disabled={loading}
+          disabled={loading || !searchQuery.trim()}
           style={{
             padding: '15px 30px',
             backgroundColor: loading ? '#ccc' : '#3b82f6',
@@ -430,7 +455,7 @@ const handleQuery = async () => {
               const url = URL.createObjectURL(blob)
               const a = document.createElement('a')
               a.href = url
-              a.download = `answer_${batteryModel || 'query'}.txt`
+              a.download = `answer_${searchQuery || 'query'}.txt`
               a.click()
             }}
             style={{
