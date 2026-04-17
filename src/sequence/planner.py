@@ -3,6 +3,7 @@ import ast
 from src.sequence.cycle_detector import CycleDetector
 from src.sequence.topological_sort import TopologicalSort
 from src.sequence.time_estimator import TimeEstimator
+from src.sequence.island_resolver import IsolatedNodeResolver
 from src.kg.client import Neo4jClient
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -51,6 +52,23 @@ class SequencePlanner:
 
         self.topological_sort.set_graph(broken_graph)
         sorted_ids = self.topological_sort.sort()
+
+        isolated_nodes = [n for n in broken_graph.nodes() if broken_graph.in_degree(n) == 0 and broken_graph.out_degree(n) == 0]
+        if isolated_nodes:
+            logger.info(f"Found {len(isolated_nodes)} isolated nodes: {isolated_nodes}")
+            resolver = IsolatedNodeResolver()
+            all_node_names = list(broken_graph.nodes())
+            existing_edges = list(broken_graph.edges())
+
+            matches = resolver.resolve(isolated_nodes, all_node_names, existing_edges)
+
+            for isolated, connected in matches.items():
+                if connected:
+                    broken_graph.add_edge(isolated, connected)
+                    logger.info(f"Added virtual edge: {isolated} -> {connected}")
+
+            sorted_ids = self.topological_sort.sort()
+
         parallel_groups = self.topological_sort.get_parallel_groups()
 
         component_map = {c.get('id', ''): c for c in components}
