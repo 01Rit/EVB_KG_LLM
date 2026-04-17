@@ -26,9 +26,19 @@ class Settings(BaseSettings):
         extra = 'ignore'
 
 
-settings = Settings(
-    neo4j_password=os.getenv('NEO4J_PASSWORD', ''),
-    openai_api_key=os.getenv('OPENAI_API_KEY', ''),
-    openai_base_url=os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
-    llm_model=os.getenv('LLM_MODEL', 'gpt-4o')
-)
+def load_settings():
+    """Load settings from environment variables with .env file support"""
+    return Settings(
+        neo4j_uri=os.getenv('NEO4J_URI', 'bolt://localhost:7687'),
+        neo4j_user=os.getenv('NEO4J_USER', 'neo4j'),
+        neo4j_password=os.getenv('NEO4J_PASSWORD', ''),
+        milvus_host=os.getenv('MILVUS_HOST', 'localhost'),
+        milvus_port=int(os.getenv('MILVUS_PORT', '19530')),
+        openai_api_key=os.getenv('OPENAI_API_KEY', ''),
+        openai_base_url=os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+        llm_model=os.getenv('LLM_MODEL', 'gpt-4o'),
+        log_level=os.getenv('LOG_LEVEL', 'INFO'),
+    )
+
+
+settings = load_settings()
