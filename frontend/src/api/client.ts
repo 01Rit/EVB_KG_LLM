@@ -25,6 +25,15 @@ export const graphApi = {
 export const queryApi = {
   ask: (data: QueryRequest) => api.post<QueryResponse>('/disassembly/plan', data),
   getHistory: (limit = 10) => api.get('/query/history', { params: { limit } }),
+  feedback: (data: { question: string; use_web_search: boolean; context: string[] }) =>
+    api.post('/query/feedback', data),
+  feedbackSync: (data: { question: string; use_web_search: boolean; context: string[] }) =>
+    api.post<{ code: number; message: string; data: { answer: string; sources: any[] } }>('/query/feedback/sync', data),
+}
+
+export const batteryApi = {
+  search: (q: string = '') =>
+    api.get<{ code: number; message: string; data: Array<{ model: string; L1_components: number; L2_entities: number; L3_terms: number }> }>('/battery-models', { params: { search: q, include_stats: true } }),
 }
 
 export const sequenceApi = {

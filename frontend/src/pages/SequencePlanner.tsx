@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { queryApi } from '../api/client'
+import { useState, useEffect, useRef } from 'react'
+import { queryApi, batteryApi } from '../api/client'
 import type { QueryResponse, DisassemblyStep } from '../types'
 
 const REASONING_STEPS = [
@@ -110,6 +110,8 @@ function ProgressBar({ progress }: { progress: ProgressState }) {
 
 export function SequencePlanner() {
   const [batteryModel, setBatteryModel] = useState('')
+  const [batteryModels, setBatteryModels] = useState<Array<{ model: string; L1_components: number; L2_entities: number; L3_terms: number }>>([])
+  const [showDropdown, setShowDropdown] = useState(false)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<QueryResponse | null>(null)
   const [debug, setDebug] = useState(false)
@@ -118,6 +120,49 @@ export function SequencePlanner() {
     status: 'idle',
     message: '',
   })
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const loadBatteryModels = async () => {
+      try {
+        const res = await batteryApi.search('')
+        if (res.data.code === 0) {
+          setBatteryModels(res.data.data)
+        }
+      } catch (err) {
+        console.error('Failed to load battery models:', err)
+      }
+    }
+    loadBatteryModels()
+  }, [])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const handleBatterySearch = async (query: string) => {
+    setBatteryModel(query)
+    try {
+      const res = await batteryApi.search(query)
+      if (res.data.code === 0) {
+        setBatteryModels(res.data.data)
+        setShowDropdown(true)
+      }
+    } catch (err) {
+      console.error('Failed to search battery models:', err)
+    }
+  }
+
+  const selectBatteryModel = (model: string) => {
+    setBatteryModel(model)
+    setShowDropdown(false)
+  }
 
   const handleQuery = async () => {
     if (!batteryModel.trim()) return
@@ -168,25 +213,63 @@ export function SequencePlanner() {
       <h1 className="page-header">拆卸序列规划</h1>
 
       <div className="card">
-        <div style={{ marginBottom: '20px' }}>
+        <div style={{ marginBottom: '20px' }} ref={dropdownRef}>
           <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold' }}>
             电池型号
           </label>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <input
-              type="text"
-              value={batteryModel}
-              onChange={(e) => setBatteryModel(e.target.value)}
-              placeholder="例如: Tesla_Model_3"
-              style={{
-                flex: 1,
-                padding: '10px',
-                borderRadius: '8px',
-                border: '1px solid #ddd',
-                fontSize: '16px',
-              }}
-            />
-            <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <input
+                type="text"
+                value={batteryModel}
+                onChange={(e) => handleBatterySearch(e.target.value)}
+                onFocus={() => setShowDropdown(true)}
+                placeholder="搜索或选择电池型号..."
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  borderRadius: '8px',
+                  border: '1px solid #ddd',
+                  fontSize: '16px',
+                }}
+              />
+              {showDropdown && batteryModels.length > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  background: 'white',
+                  border: '1px solid #ddd',
+                  borderRadius: '8px',
+                  marginTop: '4px',
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  zIndex: 1000,
+                  boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                }}>
+                  {batteryModels.map((item) => (
+                    <div
+                      key={item.model}
+                      onClick={() => selectBatteryModel(item.model)}
+                      style={{
+                        padding: '10px',
+                        cursor: 'pointer',
+                        borderBottom: '1px solid #eee',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'white')}
+                    >
+                      <div style={{ fontWeight: 500 }}>{item.model}</div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>
+                        L1: {item.L1_components} | L2: {item.L2_entities} | L3: {item.L3_terms}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '10px 0' }}>
               <input
                 type="checkbox"
                 checked={debug}
