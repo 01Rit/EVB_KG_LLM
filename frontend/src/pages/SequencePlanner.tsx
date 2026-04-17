@@ -2,25 +2,153 @@ import { useState } from 'react'
 import { queryApi } from '../api/client'
 import type { QueryResponse, DisassemblyStep } from '../types'
 
+const REASONING_STEPS = [
+  { id: 'rewrite', label: '查询重写' },
+  { id: 'retrieve', label: '知识检索' },
+  { id: 'generate', label: 'LLM生成' },
+  { id: 'feedback', label: '反馈优化' },
+  { id: 'complete', label: '完成' },
+]
+
+interface ProgressState {
+  currentStep: number
+  status: 'idle' | 'processing' | 'success' | 'error'
+  message: string
+  timing?: {
+    rewrite_ms?: number
+    retrieve_ms?: number
+    generate_ms?: number
+    feedback_ms?: number
+    total_ms?: number
+  }
+}
+
+function ProgressBar({ progress }: { progress: ProgressState }) {
+  const percentage = Math.round((progress.currentStep / (REASONING_STEPS.length - 1)) * 100)
+
+  const getStepDetails = () => {
+    if (!progress.timing) return null
+    const { rewrite_ms, retrieve_ms, generate_ms, feedback_ms } = progress.timing
+    return (
+      <div style={{ marginTop: '16px', padding: '12px', backgroundColor: '#f8fafc', borderRadius: '8px', fontSize: '13px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', textAlign: 'center' }}>
+          <div>
+            <div style={{ color: '#666', marginBottom: '4px' }}>查询重写</div>
+            <div style={{ fontWeight: 'bold', color: '#3b82f6' }}>{rewrite_ms ? `${rewrite_ms}ms` : '-'}</div>
+          </div>
+          <div>
+            <div style={{ color: '#666', marginBottom: '4px' }}>知识检索</div>
+            <div style={{ fontWeight: 'bold', color: '#22c55e' }}>{retrieve_ms ? `${retrieve_ms}ms` : '-'}</div>
+          </div>
+          <div>
+            <div style={{ color: '#666', marginBottom: '4px' }}>LLM生成</div>
+            <div style={{ fontWeight: 'bold', color: '#f97316' }}>{generate_ms ? `${generate_ms}ms` : '-'}</div>
+          </div>
+          <div>
+            <div style={{ color: '#666', marginBottom: '4px' }}>反馈优化</div>
+            <div style={{ fontWeight: 'bold', color: '#8b5cf6' }}>{feedback_ms ? `${feedback_ms}ms` : '-'}</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ marginTop: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px', color: '#666' }}>
+        <span>{progress.message || '等待开始...'}</span>
+        <span>{percentage}%</span>
+      </div>
+      <div style={{ height: '10px', backgroundColor: '#e5e7eb', borderRadius: '5px', overflow: 'hidden' }}>
+        <div
+          style={{
+            height: '100%',
+            width: `${percentage}%`,
+            backgroundColor: progress.status === 'error' ? '#ef4444' : progress.status === 'success' ? '#22c55e' : '#3b82f6',
+            transition: 'width 0.5s ease',
+          }}
+        />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px' }}>
+        {REASONING_STEPS.map((step, index) => (
+          <div
+            key={step.id}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              flex: 1,
+              opacity: index <= progress.currentStep ? 1 : 0.4,
+            }}
+          >
+            <div
+              style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '50%',
+                backgroundColor: index < progress.currentStep ? '#22c55e' : index === progress.currentStep ? '#3b82f6' : '#e5e7eb',
+                color: 'white',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '12px',
+                fontWeight: 'bold',
+              }}
+            >
+              {index < progress.currentStep ? '✓' : index + 1}
+            </div>
+            <span style={{ fontSize: '11px', marginTop: '4px', textAlign: 'center', color: index === progress.currentStep ? '#3b82f6' : '#666' }}>
+              {step.label}
+            </span>
+          </div>
+        ))}
+      </div>
+      {progress.currentStep > 0 && progress.currentStep < 5 && getStepDetails()}
+    </div>
+  )
+}
+
 export function SequencePlanner() {
   const [batteryModel, setBatteryModel] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<QueryResponse | null>(null)
   const [debug, setDebug] = useState(false)
+  const [progress, setProgress] = useState<ProgressState>({
+    currentStep: 0,
+    status: 'idle',
+    message: '',
+  })
 
   const handleQuery = async () => {
     if (!batteryModel.trim()) return
 
     setLoading(true)
+    setProgress({ currentStep: 0, status: 'processing', message: '开始查询重写...' })
+    setResult(null)
+
     try {
+      setProgress({ currentStep: 1, status: 'processing', message: '正在进行查询重写...', timing: {} })
       const res = await queryApi.ask({
         battery_model: batteryModel,
         context: [],
         debug,
       })
+
+      const trace = res.data.data?.trace
+      if (trace?.timing) {
+        setProgress({
+          currentStep: 5,
+          status: 'success',
+          message: '推理完成！',
+          timing: trace.timing,
+        })
+      } else {
+        setProgress({ currentStep: 5, status: 'success', message: '推理完成！' })
+      }
       setResult(res.data)
     } catch (error) {
       console.error('Query failed:', error)
+      setProgress(prev => ({ ...prev, status: 'error', message: '推理失败' }))
     } finally {
       setLoading(false)
     }
@@ -185,9 +313,22 @@ export function SequencePlanner() {
         </div>
       )}
 
-      {!result && !loading && (
+      {progress.status === 'idle' && !result && !loading && (
         <div className="card" style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
           输入电池型号并点击"生成序列"开始规划
+        </div>
+      )}
+
+      {(loading || progress.status !== 'idle') && progress.status !== 'success' && <ProgressBar progress={progress} />}
+
+      {progress.status === 'success' && (
+        <div className="card" style={{ marginTop: '20px', padding: '15px', backgroundColor: '#d4edda', borderRadius: '8px', textAlign: 'center' }}>
+          <span style={{ color: '#155724', fontWeight: 'bold' }}>{progress.message}</span>
+          {progress.timing && (
+            <span style={{ color: '#155724', marginLeft: '15px' }}>
+              总耗时: {progress.timing.total_ms || 0}ms
+            </span>
+          )}
         </div>
       )}
     </div>
