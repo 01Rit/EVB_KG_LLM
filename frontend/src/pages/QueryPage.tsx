@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { queryApi, batteryApi } from '../api/client'
+import { batteryApi } from '../api/client'
 
 const CONTEXT_OPTIONS = [
   '室温环境',
@@ -394,28 +394,9 @@ export function QueryPage() {
             marginBottom: '20px',
           }}>
             <div style={{ lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>
-              {result.split('\n').map((line, i) => {
-                const sourceMatch = line.match(/【来源：([^】]+)】/)
-                if (sourceMatch) {
-                  return (
-                    <p key={i} style={{ marginBottom: '8px' }}>
-                      {line.replace(/【来源：([^】]+)】/g, (_, source) => (
-                        <span style={{
-                          color: '#666',
-                          fontSize: '14px',
-                          backgroundColor: '#f5f5f5',
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          marginLeft: '8px',
-                        }}>
-                          【来源：{source}】
-                        </span>
-                      ))}
-                    </p>
-                  )
-                }
-                return <p key={i} style={{ marginBottom: '8px' }}>{line}</p>
-              })}
+              {result.split('\n').map((line, i) => (
+                <p key={i} style={{ marginBottom: '8px' }}>{line}</p>
+              ))}
             </div>
           </div>
 
