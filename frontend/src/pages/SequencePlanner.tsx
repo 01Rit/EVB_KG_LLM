@@ -129,9 +129,9 @@ export function SequencePlanner() {
                   <div style={{ color: '#666', fontSize: '14px' }}>
                     {step.action}
                   </div>
-                  {step.tool && step.tool.length > 0 && (
+                  {step.tool && (Array.isArray(step.tool) ? step.tool.join(', ') : step.tool) && (
                     <div style={{ marginTop: '5px', fontSize: '13px', color: '#888' }}>
-                      工具: {step.tool.join(', ')}
+                      工具: {Array.isArray(step.tool) ? step.tool.join(', ') : step.tool}
                     </div>
                   )}
                 </div>
@@ -163,7 +163,7 @@ export function SequencePlanner() {
             <div style={{ marginTop: '20px' }}>
               <h3>调试信息</h3>
               <div style={{ backgroundColor: '#f5f5f5', padding: '15px', borderRadius: '8px', fontSize: '13px', fontFamily: 'monospace' }}>
-                <p><strong>重写查询:</strong> {result.data.trace.rewritten_queries?.join(', ') || '-'}</p>
+                <p><strong>重写查询:</strong> {Array.isArray(result.data.trace.rewritten_queries) ? result.data.trace.rewritten_queries.join(', ') : '-'}</p>
                 <p><strong>检索节点数:</strong> {result.data.trace.retrieval_nodes || '-'}</p>
                 <p><strong>总组件数:</strong> {result.data.trace.all_components_count || '-'}</p>
                 <p><strong>总关系数:</strong> {result.data.trace.all_relations_count || '-'}</p>

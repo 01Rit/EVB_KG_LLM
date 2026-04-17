@@ -218,7 +218,7 @@ export function QueryPage() {
                       <td style={{ padding: '10px' }}>{step.id}</td>
                       <td style={{ padding: '10px' }}>{step.component}</td>
                       <td style={{ padding: '10px' }}>{step.action}</td>
-                      <td style={{ padding: '10px' }}>{step.tool?.join(', ') || '-'}</td>
+                      <td style={{ padding: '10px' }}>{Array.isArray(step.tool) ? step.tool.join(', ') : step.tool || '-'}</td>
                       <td style={{ padding: '10px' }}>{((step.confidence || 0) * 100).toFixed(0)}%</td>
                     </tr>
                   ))}
@@ -232,8 +232,8 @@ export function QueryPage() {
               <h3>推理过程（Debug）</h3>
               <div style={{ backgroundColor: '#f5f5f5', padding: '15px', borderRadius: '8px', marginTop: '10px' }}>
                 <p><strong>查询模式:</strong> {result.data.mode}</p>
-                <p><strong>重写查询:</strong> {result.data.trace.rewritten_queries?.join(', ')}</p>
-                <p><strong>检索路径:</strong> {result.data.trace.retrieval_paths?.join(', ')}</p>
+                <p><strong>重写查询:</strong> {Array.isArray(result.data.trace.rewritten_queries) ? result.data.trace.rewritten_queries.join(', ') : '-'}</p>
+                <p><strong>检索路径:</strong> {Array.isArray(result.data.trace.retrieval_paths) ? result.data.trace.retrieval_paths.join(', ') : '-'}</p>
                 <p><strong>证据数量:</strong> {result.data.trace.evidence_count}</p>
                 <p><strong>迭代次数:</strong> {result.data.trace.iteration_count}</p>
                 {result.data.trace.timing && (
