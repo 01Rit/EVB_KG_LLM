@@ -114,7 +114,9 @@ class L2Importer:
         """Create DEFINED_AS for definition-type entities, USES_TOOL for tool-using entities."""
         relations = 0
 
-        if definition_terms := [t for t in terms if t.get('name') in {e.get('name') for e in entities if e.get('entity_type') == 'definition'}]
+        definition_entity_names = {e.get('name') for e in entities if e.get('entity_type') == 'definition'}
+        definition_terms = [t for t in terms if t.get('name') in definition_entity_names]
+        if definition_terms:
             cypher = '''
             MATCH (e:L2_Entity)
             MATCH (t:L3_Term)
@@ -125,11 +127,6 @@ class L2Importer:
             '''
             result = self.neo4j.execute_query(cypher, {'doc_id': doc_id})
             relations += result[0].get('cnt', 0) if result else 0
-
-        tool_entities = [e.get('name') for e in entities if e.get('entity_type') == 'tool']
-        component_entities = [e.get('name') for e in entities if e.get('entity_type') == 'component']
-        if tool_entities and component_entities:
-            pass
 
         if terms:
             cypher = '''
