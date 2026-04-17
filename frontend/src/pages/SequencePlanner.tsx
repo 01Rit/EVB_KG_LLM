@@ -208,6 +208,19 @@ export function SequencePlanner() {
     return '#22c55e'
   }
 
+  const getAssigneeColor = (assignee?: string) => {
+    if (assignee === 'robot') return '#8b5cf6'
+    if (assignee === 'human') return '#10b981'
+    return '#6b7280'
+  }
+
+  const getScoreColor = (score?: number) => {
+    if (score === undefined) return '#6b7280'
+    if (score >= 0.7) return '#dc2626'
+    if (score >= 0.5) return '#f59e0b'
+    return '#22c55e'
+  }
+
   return (
     <div>
       <h1 className="page-header">拆卸序列规划</h1>
@@ -352,17 +365,45 @@ export function SequencePlanner() {
                       置信度: {(step.confidence * 100).toFixed(0)}%
                     </span>
                   )}
-                  {step.safety_level !== undefined && (
+                  {step.as_score !== undefined && (
                     <span
                       style={{
                         fontSize: '12px',
                         padding: '2px 8px',
                         borderRadius: '4px',
-                        backgroundColor: getSafetyColor(step.safety_level),
+                        backgroundColor: getScoreColor(step.as_score),
                         color: 'white',
                       }}
                     >
-                      安全等级: {step.safety_level}
+                      AS: {step.as_score.toFixed(3)}
+                    </span>
+                  )}
+                  {step.h_score !== undefined && (
+                    <span style={{ fontSize: '12px', color: '#3b82f6' }}>
+                      H: {step.h_score.toFixed(3)}
+                    </span>
+                  )}
+                  {step.s_score !== undefined && (
+                    <span style={{ fontSize: '12px', color: '#f97316' }}>
+                      S: {step.s_score.toFixed(3)}
+                    </span>
+                  )}
+                  {(step.human_loss !== undefined || step.robot_loss !== undefined) && (
+                    <span style={{ fontSize: '11px', color: '#6b7280' }}>
+                      损失: H{step.human_loss?.toFixed(1)}/R{step.robot_loss?.toFixed(1)}
+                    </span>
+                  )}
+                  {step.assignee !== undefined && (
+                    <span
+                      style={{
+                        fontSize: '12px',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        backgroundColor: getAssigneeColor(step.assignee),
+                        color: 'white',
+                      }}
+                    >
+                      {step.assignee === 'robot' ? '机器人' : '人工'}
                     </span>
                   )}
                 </div>

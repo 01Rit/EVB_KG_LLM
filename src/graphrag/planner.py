@@ -21,12 +21,41 @@ class Planner:
         self.ranker = EvidenceRanker()
         self.generator = PlanGenerator(llm_client)
         self.feedback = FeedbackLoop(retriever, self.ranker, self.generator)
+        self._neo4j_client = neo4j_client
 
         if neo4j_client:
             community_detector = CommunityDetector(neo4j_client, llm_client)
             self.global_engine = GlobalQueryEngine(neo4j_client, llm_client, community_detector)
         else:
             self.global_engine = None
+
+    def _enrich_steps_with_scores(self, steps: list, battery_model: str) -> list:
+        """Enrich steps with scoring data from Neo4j."""
+        if not steps or not self._neo4j_client:
+            return steps
+
+        try:
+            cypher = '''
+            MATCH (c:Component {battery_model: $model})
+            WHERE c.as_score IS NOT NULL
+            RETURN c.name as name, c.as_score as as_score, c.h_weighted_score as h_score,
+                   c.s_weighted_score as s_score, c.human_loss as human_loss,
+                   c.robot_loss as robot_loss, c.loss_diff as loss_diff, c.assignee as assignee
+            '''
+            results = self._neo4j_client.execute_query(cypher, {'model': battery_model})
+            score_map = {r.get('name', ''): r for r in results}
+
+            enriched_steps = []
+            for step in steps:
+                component_name = step.get('component', '')
+                scores = score_map.get(component_name, {})
+                if scores:
+                    step = {**step, **scores}
+                enriched_steps.append(step)
+            return enriched_steps
+        except Exception as e:
+            logger.warning(f'Failed to enrich steps with scores: {e}')
+            return steps
     
     async def plan(self, query: str, battery_model: str, context: Optional[list[str]] = None,
                    mode: str = "local", debug: bool = False) -> dict:
@@ -116,7 +145,10 @@ class Planner:
         final_plan, evidence_graph, iterations = await self.feedback.refine(
             query, initial_plan, evidence_graph, battery_model, context
         )
-        
+
+        steps = final_plan.get('steps', [])
+        steps = self._enrich_steps_with_scores(steps, battery_model)
+
         if debug:
             trace['timing']['feedback_ms'] = int((time.time() - start) * 1000)
             trace['iteration_count'] = iterations
@@ -126,12 +158,12 @@ class Planner:
                 'nodes': [{'id': n.id, 'type': n.node_type, 'name': n.name} for n in evidence_graph.nodes[:20]],
                 'edges': evidence_graph.edges[:20]
             }
-        
+
         result = {
             'code': 0,
             'message': 'Success',
             'data': {
-                'steps': final_plan.get('steps', []),
+                'steps': steps,
                 'mode': 'local'
             }
         }

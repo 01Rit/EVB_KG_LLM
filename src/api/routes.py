@@ -27,7 +27,7 @@ llm_client = LLMClient(
 )
 
 retriever = MultiPathRetriever(neo4j_client, milvus_client)
-planner = Planner(llm_client, retriever)
+planner = Planner(llm_client, retriever, neo4j_client)
 
 
 @router.post('/api/v1/disassembly/plan', response_model=PlanResponse)

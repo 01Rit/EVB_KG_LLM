@@ -36,7 +36,14 @@ export interface DisassemblyStep {
   tool: string | string[]
   evidence: string[]
   confidence: number
-  safety_level: number
+  safety_level?: number
+  h_score?: number
+  s_score?: number
+  as_score?: number
+  human_loss?: number
+  robot_loss?: number
+  loss_diff?: number
+  assignee?: 'human' | 'robot'
 }
 
 export interface QueryTrace {
