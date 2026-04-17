@@ -4,6 +4,7 @@ from src.allocator.entropy_weight import EntropyWeightCalculator
 from src.allocator.as_calculator import ASCalculator
 from src.kg.client import Neo4jClient
 from src.utils.llm_client import LLMClient
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -33,8 +34,8 @@ class BatchScorer:
 
         assignee = self.as_calc.determine_assignee(
             final_scores['as_score'],
-            robot_cost=robot_loss,
-            human_cost=human_loss
+            human_loss=human_loss,
+            robot_loss=robot_loss
         )
 
         result = {
@@ -84,9 +85,9 @@ class BatchScorer:
 
         component_name = score_data['component']
         properties = {
-            'expert_A_scores': str(score_data['expert_A_scores']),
-            'expert_B_scores': str(score_data['expert_B_scores']),
-            'expert_C_scores': str(score_data['expert_C_scores']),
+            'expert_A_scores': json.dumps(score_data['expert_A_scores']),
+            'expert_B_scores': json.dumps(score_data['expert_B_scores']),
+            'expert_C_scores': json.dumps(score_data['expert_C_scores']),
             'h_weighted_score': score_data['h_score'],
             's_weighted_score': score_data['s_score'],
             'as_score': score_data['as_score'],
@@ -96,12 +97,8 @@ class BatchScorer:
             'assignee': score_data['assignee'],
         }
 
-        cypher = '''
-        MATCH (c:Component {name: $name})
-        SET c += $props
-        '''
         try:
-            self.neo4j.execute_query(cypher, {'name': component_name, 'props': properties})
+            self.neo4j.update_component_properties(component_name, properties)
             logger.info(f"Updated Neo4j node for {component_name}")
         except Exception as e:
             logger.error(f"Failed to update Neo4j node {component_name}: {e}")
