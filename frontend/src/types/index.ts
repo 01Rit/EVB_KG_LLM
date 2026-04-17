@@ -33,7 +33,7 @@ export interface DisassemblyStep {
   id: number
   component: string
   action: string
-  tool: string[]
+  tool: string | string[]
   evidence: string[]
   confidence: number
   safety_level: number
