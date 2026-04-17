@@ -201,13 +201,6 @@ export function SequencePlanner() {
 
   const steps: DisassemblyStep[] = result?.data?.steps || []
 
-  const getSafetyColor = (level: number) => {
-    if (level >= 4) return '#dc2626'
-    if (level >= 3) return '#f59e0b'
-    if (level >= 2) return '#3b82f6'
-    return '#22c55e'
-  }
-
   const getAssigneeColor = (assignee?: string) => {
     if (assignee === 'robot') return '#8b5cf6'
     if (assignee === 'human') return '#10b981'
