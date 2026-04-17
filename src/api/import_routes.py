@@ -368,14 +368,14 @@ async def import_l2(file: UploadFile = File(...)):
     if not settings.openai_api_key:
         raise HTTPException(status_code=500, detail='OpenAI API key not configured')
 
-    neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
-    llm = LLMClient(
-        api_key=settings.openai_api_key,
-        base_url=settings.openai_base_url,
-        model=settings.llm_model
-    )
-
+    neo4j = None
     try:
+        neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+        llm = LLMClient(
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+            model=settings.llm_model
+        )
         importer = L2Importer(neo4j, llm)
         result = importer.import_pdf(full_text, file.filename or 'unknown')
 
@@ -394,7 +394,8 @@ async def import_l2(file: UploadFile = File(...)):
         logger.error(f"L2 import failed: {e}")
         raise HTTPException(status_code=500, detail=f'L2 import failed: {str(e)}')
     finally:
-        neo4j.close()
+        if neo4j:
+            neo4j.close()
 
 
 @router.post('/import/l3')
