@@ -66,5 +66,5 @@ def test_isolated_node_resolution():
 
     result = planner.plan('test', components)
 
-    step_ids = [s['component'] for s in result.steps]
-    assert 'Cooling Pipe' in step_ids
+    step_names = [s['component_name'] for s in result.steps]
+    assert 'Cooling Pipe' in step_names
