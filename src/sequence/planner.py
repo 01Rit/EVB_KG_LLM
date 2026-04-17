@@ -94,6 +94,26 @@ class SequencePlanner:
 
         results = self.neo4j.execute_query(cypher, {'model': battery_model})
 
+        rel_cypher = '''
+        MATCH (c1:Component)-[r:RELATES]->(c2:Component)
+        WHERE c1.battery_model = $model AND r.type = '必须先于...拆卸'
+        RETURN c1.name as head, c2.name as tail, r.type as relation
+        '''
+        relations = self.neo4j.execute_query(rel_cypher, {'model': battery_model})
+
+        return self._parse_components_with_relations(results, relations)
+
+    def _parse_components_with_relations(self, results: List[Dict],
+                                        relations: List[Dict]) -> List[Dict]:
+        dep_map = {}
+        for rel in relations:
+            head = rel.get('head', '')
+            tail = rel.get('tail', '')
+            if head and tail:
+                if head not in dep_map:
+                    dep_map[head] = []
+                dep_map[head].append(tail)
+
         components = []
         for r in results:
             precedence = []
@@ -104,12 +124,17 @@ class SequencePlanner:
                     logger.warning(f"Failed to parse precedence for component {r.get('id')}: {r.get('precedence')}")
                     precedence = []
 
+            name = r.get('name', '')
+            rel_deps = dep_map.get(name, [])
+            all_deps = list(set(precedence + rel_deps))
+
             components.append({
                 'id': r.get('id', ''),
-                'name': r.get('name', ''),
+                'name': name,
                 'tool_required': r.get('tool_required', []),
                 'safety_level': r.get('safety_level', 1),
-                'precedence': precedence
+                'precedence': all_deps,
+                'dependencies': all_deps
             })
 
         return components
