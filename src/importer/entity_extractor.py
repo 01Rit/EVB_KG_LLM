@@ -93,6 +93,82 @@ class EntityExtractor:
             logger.error(f"Triplet extraction failed: {e}")
             return []
 
+    def extract_entities_with_types(self, text: str, filename: str = '', max_items: int = 100) -> Dict[str, Any]:
+        """
+        Extract entities with type classification and source evidence.
+        Returns: {entities: [...], terms: [...]}
+        """
+        text = text[:4000]
+
+        battery_model = self._detect_battery_model(text, filename)
+        logger.info(f"Detected battery model: {battery_model}")
+
+        prompt = f'''从以下电池拆卸手册中提取实体知识，构建三层知识图谱。
+
+文档内容：
+{text}
+
+提取要求：
+1. 识别所有可拆卸部件（component）：电池包、模组、电芯、冷却板等
+2. 识别工具（tool）：扭矩扳手、绝缘工具、拆卸夹具等
+3. 识别动作（action）：拆卸、拧松、拔出、分离、检测等
+4. 识别技术参数（parameter）：扭矩值25Nm、电压阈值、绝缘电阻等
+5. 识别安全规范（safety）：高压安全距离、IP67防护等级、防触电措施等
+6. 识别材料/属性（material）：阻燃材料、铝合金外壳、冷却液类型等
+7. 识别定义（definition）：预紧力、力矩标准、拆卸顺序规则等
+
+返回JSON：
+{{
+  "entities": [
+    {{
+      "name": "实体名称",
+      "entity_type": "component|tool|action|parameter|safety|material|definition",
+      "source_evidence": "原文摘录",
+      "battery_model": "{battery_model or 'unknown'}"
+    }}
+  ],
+  "terms": [
+    {{
+      "term_id": "术语ID",
+      "name": "术语名称",
+      "definition": "术语定义"
+    }}
+  ]
+}}
+
+  只返回JSON对象：'''
+
+        try:
+            result = self.llm.generate(prompt)
+            data = self._parse_json_object(result)
+            entities = data.get('entities', [])
+            terms = data.get('terms', [])
+            logger.info(f"Extracted {len(entities)} entities, {len(terms)} terms for {battery_model or 'unknown'}")
+            return {'entities': entities[:max_items], 'terms': terms[:max_items]}
+        except Exception as e:
+            logger.error(f"Entity type extraction failed: {e}")
+            return {'entities': [], 'terms': []}
+
+    def _parse_json_object(self, response: str) -> Dict[str, Any]:
+        """Parse a JSON object from LLM response."""
+        response = response.strip()
+        if response.startswith("```"):
+            lines = response.split("\n")
+            json_content = []
+            in_code_block = False
+            for line in lines:
+                if line.startswith("```"):
+                    in_code_block = not in_code_block
+                    continue
+                if in_code_block:
+                    json_content.append(line)
+            response = "\n".join(json_content)
+        try:
+            return json.loads(response)
+        except Exception as e:
+            logger.warning(f"Failed to parse JSON object: {e}")
+            return {}
+
     def _detect_battery_model(self, text: str, filename: str = '') -> Optional[str]:
         combined = text + ' ' + filename
         patterns = [
