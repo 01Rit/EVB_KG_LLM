@@ -27,7 +27,12 @@ async def query_feedback(request: FeedbackRequest):
     from src.config import settings
 
     neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
-    milvus = MilvusClient(settings.milvus_host, settings.milvus_port) if settings.milvus_host else None
+    milvus = None
+    if settings.milvus_host:
+        try:
+            milvus = MilvusClient(settings.milvus_host, settings.milvus_port)
+        except Exception as e:
+            logger.warning(f"Milvus connection failed, continuing without Milvus: {e}")
     llm = LLMClient(api_key=settings.openai_api_key, base_url=settings.openai_base_url, model=settings.llm_model)
 
     retriever = MultiPathRetriever(neo4j, milvus)
@@ -73,7 +78,12 @@ async def query_feedback_sync(request: FeedbackRequest):
     from src.config import settings
 
     neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
-    milvus = MilvusClient(settings.milvus_host, settings.milvus_port) if settings.milvus_host else None
+    milvus = None
+    if settings.milvus_host:
+        try:
+            milvus = MilvusClient(settings.milvus_host, settings.milvus_port)
+        except Exception as e:
+            logger.warning(f"Milvus connection failed, continuing without Milvus: {e}")
     llm = LLMClient(api_key=settings.openai_api_key, base_url=settings.openai_base_url, model=settings.llm_model)
 
     retriever = MultiPathRetriever(neo4j, milvus)
