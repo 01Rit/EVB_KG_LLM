@@ -1,7 +1,7 @@
 from src.kg.client import Neo4jClient
 from src.importer.entity_extractor import EntityExtractor
 from src.utils.llm_client import LLMClient
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Callable
 import uuid
 import logging
 
@@ -11,21 +11,40 @@ MAX_CONTENT_LENGTH = 50000
 
 
 class L2Importer:
-    def __init__(self, neo4j_client: Neo4jClient, llm_client: LLMClient):
+    def __init__(self, neo4j_client: Neo4jClient, llm_client: LLMClient,
+                 progress_callback: Optional[Callable] = None):
         self.neo4j = neo4j_client
         self.extractor = EntityExtractor(llm_client)
+        self.progress_callback = progress_callback
+
+    def _report_progress(self, stage: str, current: int, total: int,
+                         message: str, detail: str = None) -> None:
+        if self.progress_callback:
+            self.progress_callback(stage, current, total, message, detail)
 
     def import_pdf(self, full_text: str, filename: str) -> Dict[str, Any]:
+        self._report_progress('parsing', 5, 100, '开始解析文档...')
+
         extraction = self.extractor.extract_entities_with_types(full_text, filename=filename)
         entities = extraction.get('entities', [])
         terms = extraction.get('terms', [])
 
+        self._report_progress('extracting', 15, 100, f'提取到{len(entities)}个实体, {len(terms)}个术语')
+
         doc_id = str(uuid.uuid4())
         self._create_l2_document(doc_id, filename, full_text)
+        self._report_progress('creating_nodes', 25, 100, '创建L2文档节点')
 
         entities_created = self._create_l2_entities(doc_id, entities)
+        self._report_progress('creating_nodes', 45, 100, f'创建L2实体节点: {entities_created}个')
+
         terms_created = self._create_l3_terms(doc_id, terms)
+        self._report_progress('creating_nodes', 65, 100, f'创建L3术语节点: {terms_created}个')
+
         relations = self._create_cross_layer_relations(doc_id, entities, terms)
+        self._report_progress('creating_relations', 85, 100, f'创建跨层关系: {relations}个')
+
+        self._report_progress('completing', 100, 100, '导入完成')
 
         return {
             'doc_id': doc_id,

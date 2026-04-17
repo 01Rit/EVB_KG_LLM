@@ -1,99 +1,211 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { importApi } from '../api/client'
 
 type Tab = 'l1' | 'l2' | 'l3'
 
-const IMPORT_STEPS = [
-  { id: 'upload', label: '上传文件' },
-  { id: 'parse', label: '解析PDF' },
-  { id: 'extract', label: '提取实体 (LLM)' },
-  { id: 'create_nodes', label: '创建节点' },
-  { id: 'create_relations', label: '建立关系' },
-  { id: 'complete', label: '完成' },
-]
-
-interface ProgressState {
-  currentStep: number
-  status: 'idle' | 'processing' | 'success' | 'error'
+interface ProgressUpdate {
+  task_id: string
+  stage: string
+  current: number
+  total: number
   message: string
+  detail?: string
 }
 
-function ProgressBar({ progress }: { progress: ProgressState }) {
-  const percentage = Math.round((progress.currentStep / (IMPORT_STEPS.length - 1)) * 100)
+interface ImportTask {
+  taskId: string
+  type: 'l1_csv' | 'l1_txt' | 'l2'
+  status: 'idle' | 'processing' | 'success' | 'error'
+  progress: number
+  message: string
+  detail?: string
+}
+
+const STAGE_LABELS: Record<string, string> = {
+  idle: '等待',
+  parsing: '解析中',
+  extracting: '提取中',
+  creating_nodes: '创建节点',
+  creating_relations: '建立关系',
+  scoring: '评分',
+  completing: '完成',
+  completed: '完成',
+  error: '错误',
+  subscribed: '已连接'
+}
+
+function ImportProgressCard({ task, onClose }: { task: ImportTask; onClose: () => void }) {
+  const percentage = task.progress
+  const stageLabel = STAGE_LABELS[task.stage] || task.stage
 
   return (
-    <div style={{ marginTop: '20px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px', color: '#666' }}>
-        <span>{progress.message || '等待开始...'}</span>
-        <span>{percentage}%</span>
+    <div style={{
+      marginTop: '16px',
+      padding: '16px',
+      backgroundColor: task.status === 'error' ? '#fef2f2' : task.status === 'success' ? '#f0fdf4' : '#f8fafc',
+      borderRadius: '8px',
+      border: `1px solid ${task.status === 'error' ? '#fecaca' : task.status === 'success' ? '#bbf7d0' : '#e2e8f0'}`
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+        <span style={{ fontWeight: 'bold', color: '#1e293b' }}>
+          {task.type === 'l1_csv' ? 'CSV导入' : task.type === 'l1_txt' ? 'TXT导入' : 'L2文档导入'}
+        </span>
+        <span style={{
+          fontSize: '12px',
+          padding: '2px 8px',
+          borderRadius: '4px',
+          backgroundColor: task.status === 'error' ? '#ef4444' : task.status === 'success' ? '#22c55e' : '#3b82f6',
+          color: 'white'
+        }}>
+          {task.status === 'error' ? '失败' : task.status === 'success' ? '成功' : '处理中'}
+        </span>
       </div>
-      <div style={{ height: '8px', backgroundColor: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
-        <div
-          style={{
+
+      <div style={{ marginBottom: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#64748b' }}>
+          <span>{task.message || stageLabel}</span>
+          <span>{percentage}%</span>
+        </div>
+        <div style={{ height: '8px', backgroundColor: '#e2e8f0', borderRadius: '4px', overflow: 'hidden', marginTop: '4px' }}>
+          <div style={{
             height: '100%',
             width: `${percentage}%`,
-            backgroundColor: progress.status === 'error' ? '#ef4444' : progress.status === 'success' ? '#22c55e' : '#3b82f6',
-            transition: 'width 0.3s ease',
+            backgroundColor: task.status === 'error' ? '#ef4444' : task.status === 'success' ? '#22c55e' : '#3b82f6',
+            transition: 'width 0.3s ease'
+          }} />
+        </div>
+      </div>
+
+      {task.detail && (
+        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '8px' }}>
+          详情: {task.detail}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px' }}>
+        <div style={{
+          width: '8px',
+          height: '8px',
+          borderRadius: '50%',
+          backgroundColor: task.status === 'processing' ? '#22c55e' : 'transparent'
+        }} />
+        <span style={{ fontSize: '12px', color: '#64748b' }}>
+          阶段: {stageLabel}
+        </span>
+      </div>
+
+      {task.status === 'success' && (
+        <button
+          onClick={onClose}
+          style={{
+            marginTop: '12px',
+            padding: '6px 12px',
+            fontSize: '12px',
+            backgroundColor: '#64748b',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer'
           }}
-        />
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px' }}>
-        {IMPORT_STEPS.map((step, index) => (
-          <div
-            key={step.id}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              flex: 1,
-              opacity: index <= progress.currentStep ? 1 : 0.4,
-            }}
-          >
-            <div
-              style={{
-                width: '24px',
-                height: '24px',
-                borderRadius: '50%',
-                backgroundColor: index < progress.currentStep ? '#22c55e' : index === progress.currentStep ? '#3b82f6' : '#e5e7eb',
-                color: 'white',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '12px',
-                fontWeight: 'bold',
-              }}
-            >
-              {index < progress.currentStep ? '✓' : index + 1}
-            </div>
-            <span style={{ fontSize: '11px', marginTop: '4px', textAlign: 'center' }}>{step.label}</span>
-          </div>
-        ))}
-      </div>
+        >
+          关闭
+        </button>
+      )}
     </div>
   )
 }
 
 export function ImportManager() {
   const [activeTab, setActiveTab] = useState<Tab>('l1')
-  const [uploading, setUploading] = useState(false)
   const [message, setMessage] = useState('')
-  const [l2Progress, setL2Progress] = useState<ProgressState>({
-    currentStep: 0,
-    status: 'idle',
-    message: '',
-  })
+  const [activeTasks, setActiveTasks] = useState<ImportTask[]>([])
 
-  const [l1Form, setL1Form] = useState({
+  const l1Form = useState({
     name: '',
     battery_model: '',
     tool_required: '',
     safety_level: 1,
     precedence: '',
-  })
+  })[0]
+  const setL1Form = useState({
+    name: '',
+    battery_model: '',
+    tool_required: '',
+    safety_level: 1,
+    precedence: '',
+  })[1]
 
   const csvRef = useRef<HTMLInputElement>(null)
   const txtRef = useRef<HTMLInputElement>(null)
   const pdfRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const eventSources: Record<string, EventSource> = {}
+
+    activeTasks.forEach(task => {
+      if (task.status === 'processing' && !eventSources[task.taskId]) {
+        const url = `/api/v1/import/progress/${task.taskId}`
+        const eventSource = new EventSource(url)
+
+        eventSource.onmessage = (event) => {
+          try {
+            const data: ProgressUpdate = JSON.parse(event.data)
+
+            setActiveTasks(prev => prev.map(t => {
+              if (t.taskId !== task.taskId) return t
+
+              const newProgress = Math.round((data.current / data.total) * 100)
+              const newStatus = data.stage === 'completed' ? 'success'
+                : data.stage === 'error' ? 'error'
+                : 'processing'
+
+              return {
+                ...t,
+                status: newStatus,
+                progress: newProgress,
+                message: data.message,
+                detail: data.detail,
+                stage: data.stage
+              }
+            }))
+          } catch (e) {
+            console.error('Failed to parse SSE data:', e)
+          }
+        }
+
+        eventSource.onerror = () => {
+          eventSource.close()
+          setActiveTasks(prev => prev.map(t => {
+            if (t.taskId !== task.taskId) return t
+            return { ...t, status: 'error', message: '连接中断' }
+          }))
+        }
+
+        eventSources[task.taskId] = eventSource
+      }
+    })
+
+    return () => {
+      Object.values(eventSources).forEach(es => es.close())
+    }
+  }, [activeTasks.length, activeTasks.filter(t => t.status === 'processing').length])
+
+  const addTask = (taskId: string, type: ImportTask['type']): ImportTask => {
+    const task: ImportTask = {
+      taskId,
+      type,
+      status: 'processing',
+      progress: 0,
+      message: '开始导入...',
+      stage: 'idle'
+    }
+    setActiveTasks(prev => [...prev, task])
+    return task
+  }
+
+  const removeTask = (taskId: string) => {
+    setActiveTasks(prev => prev.filter(t => t.taskId !== taskId))
+  }
 
   const handleL1Manual = async () => {
     if (!l1Form.name || !l1Form.battery_model) {
@@ -101,7 +213,6 @@ export function ImportManager() {
       return
     }
 
-    setUploading(true)
     try {
       await importApi.importL1Manual({
         name: l1Form.name,
@@ -114,8 +225,6 @@ export function ImportManager() {
       setL1Form({ name: '', battery_model: '', tool_required: '', safety_level: 1, precedence: '' })
     } catch (error) {
       setMessage('导入失败')
-    } finally {
-      setUploading(false)
     }
   }
 
@@ -123,16 +232,18 @@ export function ImportManager() {
     const file = e.target.files?.[0]
     if (!file) return
 
-    setUploading(true)
     try {
       const formData = new FormData()
       formData.append('file', file)
       const res = await importApi.importL1Csv(formData)
-      setMessage(`成功: ${res.data.success}, 失败: ${res.data.failed}`)
+
+      if (res.data.task_id) {
+        addTask(res.data.task_id, 'l1_csv')
+      }
+
+      setMessage(`开始导入${res.data.total || 0}行`)
     } catch (error) {
       setMessage('CSV导入失败')
-    } finally {
-      setUploading(false)
     }
   }
 
@@ -140,16 +251,18 @@ export function ImportManager() {
     const file = e.target.files?.[0]
     if (!file) return
 
-    setUploading(true)
     try {
       const formData = new FormData()
       formData.append('file', file)
       const res = await importApi.importL1Txt(formData)
-      setMessage(res.data.message)
+
+      if (res.data.task_id) {
+        addTask(res.data.task_id, 'l1_txt')
+      }
+
+      setMessage('开始解析TXT三元组')
     } catch (error) {
       setMessage('TXT导入失败')
-    } finally {
-      setUploading(false)
     }
   }
 
@@ -157,7 +270,6 @@ export function ImportManager() {
     const file = e.target.files?.[0]
     if (!file) return
 
-    setUploading(true)
     try {
       const formData = new FormData()
       formData.append('file', file)
@@ -165,8 +277,6 @@ export function ImportManager() {
       setMessage(res.data.message)
     } catch (error) {
       setMessage('PDF导入失败')
-    } finally {
-      setUploading(false)
     }
   }
 
@@ -174,42 +284,47 @@ export function ImportManager() {
     const file = e.target.files?.[0]
     if (!file) return
 
-    setUploading(true)
-    setMessage('')
-    setL2Progress({ currentStep: 0, status: 'processing', message: '准备上传...' })
-
     try {
-      setL2Progress({ currentStep: 1, status: 'processing', message: '正在上传文件...' })
       const formData = new FormData()
       const blob = new Blob([await file.arrayBuffer()], { type: 'application/pdf' })
       const safeFile = new File([blob], encodeURIComponent(file.name), { type: 'application/pdf' })
       formData.append('file', safeFile)
 
-      setL2Progress({ currentStep: 2, status: 'processing', message: '正在解析PDF...' })
-      setL2Progress({ currentStep: 3, status: 'processing', message: '正在使用LLM提取实体和术语...' })
-
       const res = await importApi.importL2(formData)
 
-      setL2Progress({ currentStep: 4, status: 'processing', message: '正在创建节点和关系...' })
-      setL2Progress({ currentStep: 5, status: 'success', message: `导入完成！` })
-      setMessage(`文档已导入，DocID: ${res.data.doc_id}`)
-    } catch (error: unknown) {
-      console.error('L2 import error:', error)
-      const errMsg = error instanceof Error ? error.message : 'L2导入失败'
-      setMessage(errMsg)
-      setL2Progress(prev => ({ ...prev, status: 'error', message: errMsg }))
-    } finally {
-      setUploading(false)
+      if (res.data.task_id) {
+        addTask(res.data.task_id, 'l2')
+      }
+
+      setMessage('开始L2文档导入')
+    } catch (error) {
+      setMessage('L2导入失败')
     }
   }
+
+  const processingTasks = activeTasks.filter(t => t.status === 'processing')
+  const recentTasks = activeTasks.slice(-5).reverse()
 
   return (
     <div>
       <h1 className="page-header">导入管理</h1>
 
       {message && (
-        <div className="card" style={{ marginBottom: '20px', backgroundColor: message.includes('成功') ? '#d4edda' : '#f8d7da' }}>
+        <div className="card" style={{ marginBottom: '20px', backgroundColor: message.includes('成功') || message.includes('开始') ? '#d4edda' : '#f8d7da' }}>
           {message}
+        </div>
+      )}
+
+      {recentTasks.length > 0 && (
+        <div className="card" style={{ marginBottom: '20px' }}>
+          <h3 style={{ marginBottom: '12px', fontSize: '16px' }}>导入进度</h3>
+          {recentTasks.map(task => (
+            <ImportProgressCard
+              key={task.taskId}
+              task={task}
+              onClose={() => removeTask(task.taskId)}
+            />
+          ))}
         </div>
       )}
 
@@ -260,8 +375,7 @@ export function ImportManager() {
             </div>
             <button
               onClick={handleL1Manual}
-              disabled={uploading}
-              style={{ marginTop: '15px', padding: '10px 20px', backgroundColor: '#22c55e', color: 'white', border: 'none', borderRadius: '8px', cursor: uploading ? 'not-allowed' : 'pointer' }}
+              style={{ marginTop: '15px', padding: '10px 20px', backgroundColor: '#22c55e', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
             >
               导入
             </button>
@@ -273,8 +387,7 @@ export function ImportManager() {
               <input type="file" ref={csvRef} accept=".csv" onChange={handleCsvUpload} style={{ display: 'none' }} />
               <button
                 onClick={() => csvRef.current?.click()}
-                disabled={uploading}
-                style={{ padding: '10px 20px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: uploading ? 'not-allowed' : 'pointer' }}
+                style={{ padding: '10px 20px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
               >
                 CSV导入
               </button>
@@ -282,8 +395,7 @@ export function ImportManager() {
               <input type="file" ref={txtRef} accept=".txt" onChange={handleTxtUpload} style={{ display: 'none' }} />
               <button
                 onClick={() => txtRef.current?.click()}
-                disabled={uploading}
-                style={{ padding: '10px 20px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: uploading ? 'not-allowed' : 'pointer' }}
+                style={{ padding: '10px 20px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
               >
                 TXT导入
               </button>
@@ -291,8 +403,7 @@ export function ImportManager() {
               <input type="file" ref={pdfRef} accept=".pdf" onChange={handlePdfUpload} style={{ display: 'none' }} />
               <button
                 onClick={() => pdfRef.current?.click()}
-                disabled={uploading}
-                style={{ padding: '10px 20px', backgroundColor: '#f97316', color: 'white', border: 'none', borderRadius: '8px', cursor: uploading ? 'not-allowed' : 'pointer' }}
+                style={{ padding: '10px 20px', backgroundColor: '#f97316', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
               >
                 PDF提取导入
               </button>
@@ -316,12 +427,10 @@ export function ImportManager() {
           />
           <button
             onClick={() => document.getElementById('l2-upload')?.click()}
-            disabled={uploading}
-            style={{ padding: '15px 30px', backgroundColor: '#f97316', color: 'white', border: 'none', borderRadius: '8px', cursor: uploading ? 'not-allowed' : 'pointer' }}
+            style={{ padding: '15px 30px', backgroundColor: '#f97316', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
           >
             选择PDF文件
           </button>
-          {(uploading || l2Progress.status !== 'idle') && <ProgressBar progress={l2Progress} />}
         </div>
       )}
 
