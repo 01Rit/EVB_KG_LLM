@@ -57,3 +57,18 @@ def test_break_cycles():
     detector.build_graph(components)
     broken = detector.break_cycles()
     assert broken.number_of_edges() < detector.graph.number_of_edges()
+
+
+def test_isolated_nodes_not_removed():
+    """Isolated nodes should NOT be removed - they should be preserved as independent steps"""
+    detector = CycleDetector()
+    components = [
+        {'id': 'A', 'precedence': []},  # isolated node (no dependencies)
+        {'id': 'B', 'precedence': ['A']},
+    ]
+    graph = detector.build_graph(components)
+    broken = detector.break_cycles()
+
+    # A should still be in the graph as an independent step
+    assert 'A' in broken.nodes(), "Isolated node 'A' was incorrectly removed"
+    assert 'B' in broken.nodes()

@@ -79,7 +79,5 @@ class CycleDetector:
                     for i in range(len(cycle) - 1):
                         broken_graph.remove_edge(cycle[i], cycle[(i + 1) % len(cycle)])
 
-        broken_graph.remove_nodes_from(list(nx.isolates(broken_graph)))
-
         logger.info(f"Broke cycles using {method}")
         return broken_graph
