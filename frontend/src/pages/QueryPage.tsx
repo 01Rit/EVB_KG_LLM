@@ -73,21 +73,23 @@ export function QueryPage() {
     setShowDropdown(false)
   }
 
-  const handleQuery = async () => {
-    if (!batteryModel.trim()) return
-
+const handleQuery = async () => {
     setLoading(true)
     setResult(null)
     setSources([])
     setProgress(null)
     setError(null)
 
+    const queryText = batteryModel.trim()
+      ? `${batteryModel}电池相关信息`
+      : '电池相关知识'
+
     try {
       const response = await fetch('/api/v1/query/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          question: `${batteryModel}电池相关信息`,
+          question: queryText,
           use_web_search: useWebSearch,
           context,
         }),
@@ -154,9 +156,9 @@ export function QueryPage() {
       <h1 className="page-header">知识问答</h1>
 
       <div className="card">
-        <div style={{ marginBottom: '20px' }} ref={dropdownRef}>
+        <div style={{ marginBottom: '20px' }}>
           <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold' }}>
-            电池型号（可选）
+            限定知识范围（可选）
           </label>
           <div style={{ position: 'relative' }}>
             <input
@@ -164,7 +166,8 @@ export function QueryPage() {
               value={batteryModel}
               onChange={(e) => handleBatterySearch(e.target.value)}
               onFocus={() => setShowDropdown(true)}
-              placeholder="搜索或选择电池型号..."
+              placeholder="搜索电池型号限定知识范围..."
+              disabled={loading}
               style={{
                 width: '100%',
                 padding: '10px',
