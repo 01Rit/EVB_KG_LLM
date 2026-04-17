@@ -151,8 +151,12 @@ export function QueryPage() {
     }
   }
 
+  const visibleStages = useWebSearch
+    ? PROGRESS_STAGES
+    : PROGRESS_STAGES.filter(s => s.key !== 'retrieving_web')
+
   const currentStageIndex = progress
-    ? PROGRESS_STAGES.findIndex(s => s.key === progress.stage)
+    ? visibleStages.findIndex(s => s.key === progress.stage)
     : -1
 
   return (
@@ -329,7 +333,7 @@ export function QueryPage() {
         <div className="card">
           <h3>查询进度</h3>
           <div style={{ marginBottom: '20px' }}>
-            {PROGRESS_STAGES.map((stage, index) => {
+            {visibleStages.map((stage, index) => {
               const isCompleted = index < currentStageIndex
               const isCurrent = index === currentStageIndex
               const isPending = index > currentStageIndex
