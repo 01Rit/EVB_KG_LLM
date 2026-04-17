@@ -6,7 +6,7 @@ export interface GraphNode {
 }
 
 export interface GraphEdge {
-  from: string
+  from_: string
   to: string
   type: string
 }

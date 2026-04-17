@@ -23,7 +23,7 @@ export function GraphView({ nodes, edges, onNodeClick }: GraphViewProps) {
       color: NODE_COLORS[n.type as keyof typeof NODE_COLORS] || '#999',
     })),
     links: edges.map(e => ({
-      source: e.from,
+      source: e.from_,
       target: e.to,
     })),
   }
