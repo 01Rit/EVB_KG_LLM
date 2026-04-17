@@ -49,8 +49,22 @@ def test_parse_components_with_relates():
 
     result = planner._parse_components_with_relations(components_data, relations_data)
 
-    # Find Upper Housing in result
     upper_housing = next((c for c in result if c['name'] == 'Upper Housing'), None)
     assert upper_housing is not None
-    # Should have Insulator as dependency from RELATES relation
     assert 'Insulator' in upper_housing['dependencies']
+
+
+def test_isolated_node_resolution():
+    """Test that isolated nodes are resolved and kept as independent steps"""
+    planner = SequencePlanner()
+
+    components = [
+        {'id': 'A', 'name': 'Upper Housing', 'precedence': [], 'dependencies': []},
+        {'id': 'B', 'name': 'Lower Housing', 'precedence': [], 'dependencies': []},
+        {'id': 'C', 'name': 'Cooling Pipe', 'precedence': [], 'dependencies': []},
+    ]
+
+    result = planner.plan('test', components)
+
+    step_ids = [s['component'] for s in result.steps]
+    assert 'Cooling Pipe' in step_ids
