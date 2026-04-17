@@ -16,6 +16,13 @@ class Step(BaseModel):
     evidence: list[str] = []
     confidence: Optional[float] = None
     safety_level: Optional[int] = None
+    h_score: Optional[float] = None
+    s_score: Optional[float] = None
+    as_score: Optional[float] = None
+    human_loss: Optional[float] = None
+    robot_loss: Optional[float] = None
+    loss_diff: Optional[float] = None
+    assignee: Optional[str] = None
 
 
 class PlanResponse(BaseModel):
