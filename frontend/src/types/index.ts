@@ -32,6 +32,7 @@ export interface QueryResponse {
 export interface DisassemblyStep {
   id: number
   component: string
+  component_name?: string
   action: string
   tool: string | string[]
   evidence: string[]
@@ -44,6 +45,7 @@ export interface DisassemblyStep {
   robot_loss?: number
   loss_diff?: number
   assignee?: 'human' | 'robot'
+  time_seconds?: number
 }
 
 export interface QueryTrace {
