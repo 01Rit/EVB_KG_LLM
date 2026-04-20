@@ -84,6 +84,10 @@ class DataImporter:
 
         if components:
             self._batch_create_components(doc_id, components)
+            for comp in components:
+                comp_name = comp.get('name', '')
+                if comp_name:
+                    self._auto_score_component(comp_name, doc_id)
 
         if terms:
             self._batch_create_terms(doc_id, terms)
