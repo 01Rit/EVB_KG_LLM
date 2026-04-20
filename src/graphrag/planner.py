@@ -238,6 +238,9 @@ def compute_parallel_batches(steps):
                 current_batch.append(step)
 
         if not current_batch:
+            if len(processed) < len(sorted_steps):
+                unprocessed = [s['id'] for s in sorted_steps if s['id'] not in processed]
+                raise ValueError(f"Circular dependency detected. Unprocessed steps: {unprocessed}")
             break
 
         batch_start = 0
