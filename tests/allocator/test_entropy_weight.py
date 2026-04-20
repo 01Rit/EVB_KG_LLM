@@ -29,6 +29,42 @@ def test_weight_from_expert_scores():
     assert len(weights) == 3
     assert abs(sum(weights) - 1.0) < 1e-6
 
+def test_calculate_t_score():
+    calc = EntropyWeightCalculator()
+    expert_scores = [
+        {'H_T': 1.0, 'S_T': 1.5, 'Q_T': 2.0},
+        {'H_T': 2.0, 'S_T': 1.0, 'Q_T': 1.5},
+        {'H_T': 0.5, 'S_T': 2.0, 'Q_T': 1.0}
+    ]
+    result = calc.calculate_t_score(expert_scores)
+    assert 't_score' in result
+    assert 0 <= result['t_score'] <= 3
+
+def test_calculate_t_score_empty():
+    calc = EntropyWeightCalculator()
+    result = calc.calculate_t_score([])
+    assert result['t_score'] == 0
+
+def test_calculate_t_score_default_values():
+    calc = EntropyWeightCalculator()
+    expert_scores = [
+        {'H_T': 1.0},
+        {'S_T': 2.0}
+    ]
+    result = calc.calculate_t_score(expert_scores)
+    assert 'h_time_factor' in result
+    assert 's_time_factor' in result
+    assert 'q_time_factor' in result
+
+def test_calculate_t_score_boundary():
+    calc = EntropyWeightCalculator()
+    expert_scores = [
+        {'H_T': 0.0, 'S_T': 0.0, 'Q_T': 0.0},
+        {'H_T': 3.0, 'S_T': 3.0, 'Q_T': 3.0}
+    ]
+    result = calc.calculate_t_score(expert_scores)
+    assert 't_score' in result
+
 def test_final_h_score():
     calc = EntropyWeightCalculator()
     expert_scores = [
