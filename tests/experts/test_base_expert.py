@@ -24,12 +24,13 @@ def test_factor_count():
     assert len(BaseExpert.H_FACTORS) == 5
     assert len(BaseExpert.S_FACTORS) == 4
     assert len(BaseExpert.D_FACTORS) == 2
+    assert len(BaseExpert.T_FACTORS) == 1
 
 
 class TestJsonParsingRobustness:
     def test_markdown_wrapped_json_response(self):
         mock_llm = MagicMock()
-        mock_llm.generate.return_value = '```json\n{"H1_visibility": 1.0, "H2_space_limitation": 1.5, "H3_object_movement": 2.0, "H4_ergonomic_impact": 1.0, "H5_repetitiveness": 0.5, "S1_high_voltage": 2.0, "S2_chemical_reagent": 0.5, "S3_fire_explosion": 0.5, "S4_human_injury": 1.0, "Lh_human_loss": 1.5, "Lr_robot_loss": 1.0}\n```'
+        mock_llm.generate.return_value = '```json\n{"H1_visibility": 1.0, "H2_space_limitation": 1.5, "H3_object_movement": 2.0, "H4_ergonomic_impact": 1.0, "H5_repetitiveness": 0.5, "S1_high_voltage": 2.0, "S2_chemical_reagent": 0.5, "S3_fire_explosion": 0.5, "S4_human_injury": 1.0, "Lh_human_loss": 1.5, "Lr_robot_loss": 1.0, "T_T": 2.0}\n```'
         expert = SafetyExpert(mock_llm)
         result = expert.score("Battery壳体")
         assert result['H1_visibility'] == 1.0
@@ -38,7 +39,7 @@ class TestJsonParsingRobustness:
 
     def test_markdown_wrapped_json_without_language_tag(self):
         mock_llm = MagicMock()
-        mock_llm.generate.return_value = '```\n{"H1_visibility": 2.0, "H2_space_limitation": 2.5, "H3_object_movement": 1.0, "H4_ergonomic_impact": 1.5, "H5_repetitiveness": 0.5, "S1_high_voltage": 1.0, "S2_chemical_reagent": 1.5, "S3_fire_explosion": 0.5, "S4_human_injury": 2.0, "Lh_human_loss": 1.0, "Lr_robot_loss": 2.0}\n```'
+        mock_llm.generate.return_value = '```\n{"H1_visibility": 2.0, "H2_space_limitation": 2.5, "H3_object_movement": 1.0, "H4_ergonomic_impact": 1.5, "H5_repetitiveness": 0.5, "S1_high_voltage": 1.0, "S2_chemical_reagent": 1.5, "S3_fire_explosion": 0.5, "S4_human_injury": 2.0, "Lh_human_loss": 1.0, "Lr_robot_loss": 2.0, "T_T": 2.0}\n```'
         expert = SafetyExpert(mock_llm)
         result = expert.score("Battery壳体")
         assert result['H1_visibility'] == 2.0
@@ -53,7 +54,7 @@ class TestJsonParsingRobustness:
 
     def test_valid_json_response(self):
         mock_llm = MagicMock()
-        mock_llm.generate.return_value = '{"H1_visibility": 1.0, "H2_space_limitation": 1.5, "H3_object_movement": 2.0, "H4_ergonomic_impact": 1.0, "H5_repetitiveness": 0.5, "S1_high_voltage": 2.0, "S2_chemical_reagent": 0.5, "S3_fire_explosion": 0.5, "S4_human_injury": 1.0, "Lh_human_loss": 1.5, "Lr_robot_loss": 1.0}'
+        mock_llm.generate.return_value = '{"H1_visibility": 1.0, "H2_space_limitation": 1.5, "H3_object_movement": 2.0, "H4_ergonomic_impact": 1.0, "H5_repetitiveness": 0.5, "S1_high_voltage": 2.0, "S2_chemical_reagent": 0.5, "S3_fire_explosion": 0.5, "S4_human_injury": 1.0, "Lh_human_loss": 1.5, "Lr_robot_loss": 1.0, "T_T": 2.0}'
         expert = SafetyExpert(mock_llm)
         result = expert.score("Battery壳体")
         assert result['H1_visibility'] == 1.0
