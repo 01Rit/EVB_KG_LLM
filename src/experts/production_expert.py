@@ -3,6 +3,8 @@ from src.utils.llm_client import LLMClient
 
 
 class ProductionExpert(BaseExpert):
+    T_FACTORS = ['T_T']
+
     @property
     def expert_name(self) -> str:
         return "生产工艺工程师"

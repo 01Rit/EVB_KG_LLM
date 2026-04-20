@@ -13,7 +13,7 @@ class EntropyWeightCalculator:
 
     D_FACTOR_NAMES = ['Lh_human_loss', 'Lr_robot_loss']
 
-    T_FACTORS = ['H_T', 'S_T', 'Q_T']
+    T_FACTORS = ['T_T']
 
     def __init__(self, k: float = 1.0):
         self.k = k
@@ -91,7 +91,7 @@ class EntropyWeightCalculator:
         }
 
     def calculate_t_score(self, expert_scores: List[Dict]) -> Dict[str, float]:
-        """计算综合时间评分"""
+        """计算综合时间评分 - 所有专家都评估T_T因子"""
         if not expert_scores:
             return {
                 't_score': 0,
@@ -102,20 +102,13 @@ class EntropyWeightCalculator:
 
         t_values = []
         for scores in expert_scores:
-            t_factors = [max(0.0, min(3.0, scores.get(f, 1.5))) for f in self.T_FACTORS]
-            t_values.append(t_factors)
+            t_val = max(0.0, min(3.0, scores.get('T_T', 1.5)))
+            t_values.append(t_val)
 
-        weights = self.calculate_weights(expert_scores, self.T_FACTORS)
-
-        weighted_t = []
-        for i, scores in enumerate(expert_scores):
-            t_sum = sum(weights[j] * t_values[i][j] for j in range(len(self.T_FACTORS)))
-            weighted_t.append(t_sum)
-
-        t_score = np.mean(weighted_t)
+        t_score = np.mean(t_values)
         return {
             't_score': round(t_score, 3),
-            'h_time_factor': t_values[0][0],
-            's_time_factor': t_values[0][1],
-            'q_time_factor': t_values[0][2]
+            'h_time_factor': t_values[0] if len(t_values) > 0 else 1.5,
+            's_time_factor': t_values[1] if len(t_values) > 1 else 1.5,
+            'q_time_factor': t_values[2] if len(t_values) > 2 else 1.5
         }

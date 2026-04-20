@@ -3,6 +3,8 @@ from src.utils.llm_client import LLMClient
 
 
 class QualityExpert(BaseExpert):
+    T_FACTORS = ['T_T']
+
     @property
     def expert_name(self) -> str:
         return "质量检测专家"
