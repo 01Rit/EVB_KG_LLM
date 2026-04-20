@@ -8,6 +8,7 @@ from src.graphrag.community import CommunityDetector
 from src.graphrag.global_query import GlobalQueryEngine
 from src.kg.models import EvidenceGraph
 from src.utils.llm_client import LLMClient
+from src.sequence.time_estimator import TimeEstimator
 import logging
 import time
 
@@ -38,19 +39,27 @@ class Planner:
             cypher = '''
             MATCH (c:Component {battery_model: $model})
             WHERE c.as_score IS NOT NULL
-            RETURN c.name as name, c.as_score as as_score, c.h_weighted_score as h_score,
+            RETURN c.id as id, c.name as name, c.as_score as as_score, c.h_weighted_score as h_score,
                    c.s_weighted_score as s_score, c.human_loss as human_loss,
-                   c.robot_loss as robot_loss, c.loss_diff as loss_diff, c.assignee as assignee
+                   c.robot_loss as robot_loss, c.loss_diff as loss_diff, c.assignee as assignee,
+                   c.time_score as time_score
             '''
             results = self._neo4j_client.execute_query(cypher, {'model': battery_model})
-            score_map = {r.get('name', ''): r for r in results}
+            score_map_by_id = {r.get('id', ''): r for r in results if r.get('id')}
+            score_map_by_name = {r.get('name', ''): r for r in results if r.get('name')}
 
             enriched_steps = []
             for step in steps:
-                component_name = step.get('component', '')
-                scores = score_map.get(component_name, {})
+                component = step.get('component', '')
+                scores = score_map_by_id.get(component, {})
+                if not scores:
+                    scores = score_map_by_name.get(component, {})
                 if scores:
-                    step = {**step, **scores}
+                    full_name = scores.get('name', component)
+                    scores_for_merge = {k: v for k, v in scores.items() if k not in ('id', 'name')}
+                    step = {**step, **scores_for_merge, 'component_name': full_name}
+                else:
+                    step['component_name'] = component
                 enriched_steps.append(step)
             return enriched_steps
         except Exception as e:
@@ -149,6 +158,13 @@ class Planner:
         steps = final_plan.get('steps', [])
         steps = self._enrich_steps_with_scores(steps, battery_model)
 
+        time_estimator = TimeEstimator()
+        for step in steps:
+            time_score = step.get('time_score', 1.5)
+            step['time_seconds'] = time_estimator.calculate_time_from_score(time_score)
+
+        total_time_seconds = sum(s['time_seconds'] for s in steps)
+
         if debug:
             trace['timing']['feedback_ms'] = int((time.time() - start) * 1000)
             trace['iteration_count'] = iterations
@@ -164,6 +180,7 @@ class Planner:
             'message': 'Success',
             'data': {
                 'steps': steps,
+                'total_time_seconds': total_time_seconds,
                 'mode': 'local'
             }
         }
