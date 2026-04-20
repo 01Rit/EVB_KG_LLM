@@ -165,6 +165,9 @@ class Planner:
 
         total_time_seconds = sum(s['time_seconds'] for s in steps)
 
+        parallel_batches = compute_parallel_batches(steps)
+        total_time_seconds = max((b['start_time'] + b['duration'] for b in parallel_batches), default=0)
+
         if debug:
             trace['timing']['feedback_ms'] = int((time.time() - start) * 1000)
             trace['iteration_count'] = iterations
@@ -180,6 +183,7 @@ class Planner:
             'message': 'Success',
             'data': {
                 'steps': steps,
+                'parallel_batches': parallel_batches,
                 'total_time_seconds': total_time_seconds,
                 'mode': 'local'
             }
@@ -212,3 +216,50 @@ class Planner:
                 lines.append(f"- {head} --[{rel}]--> {tail}")
 
         return "\n".join(lines)
+
+
+def compute_parallel_batches(steps):
+    """根据depends_on计算并行批次"""
+    if not steps:
+        return []
+
+    sorted_steps = sorted(steps, key=lambda s: s.get('id', 0))
+
+    batches = []
+    processed = set()
+
+    while len(processed) < len(sorted_steps):
+        current_batch = []
+        for step in sorted_steps:
+            if step['id'] in processed:
+                continue
+            deps = step.get('depends_on', [])
+            if all(d in processed for d in deps):
+                current_batch.append(step)
+
+        if not current_batch:
+            break
+
+        batch_start = 0
+        for step in current_batch:
+            for dep_id in step.get('depends_on', []):
+                dep = next((s for s in sorted_steps if s['id'] == dep_id), None)
+                if dep:
+                    dep_end = dep.get('start_time', 0) + dep.get('time_seconds', 0)
+                    batch_start = max(batch_start, dep_end)
+
+        batch_duration = max(s['time_seconds'] for s in current_batch)
+
+        for step in current_batch:
+            step['start_time'] = batch_start
+            step['duration'] = batch_duration
+            processed.add(step['id'])
+
+        batches.append({
+            'batch_id': len(batches),
+            'tasks': [s['id'] for s in current_batch],
+            'start_time': batch_start,
+            'duration': batch_duration
+        })
+
+    return batches
