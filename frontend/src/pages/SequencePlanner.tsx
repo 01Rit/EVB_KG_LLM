@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { queryApi, batteryApi } from '../api/client'
 import type { QueryResponse, DisassemblyStep } from '../types'
+import { GanttChart } from '../components/GanttChart'
 
 const REASONING_STEPS = [
   { id: 'rewrite', label: '查询重写' },
@@ -341,7 +342,12 @@ export function SequencePlanner() {
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
-                    {step.component}
+                    {step.component_name || step.component}
+                    {step.component_name && step.component_name !== step.component && (
+                      <span style={{ fontWeight: 'normal', color: '#888', marginLeft: '8px' }}>
+                        ({step.component})
+                      </span>
+                    )}
                   </div>
                   <div style={{ color: '#666', fontSize: '14px' }}>
                     {step.action}
@@ -403,6 +409,13 @@ export function SequencePlanner() {
               </div>
             ))}
           </div>
+
+          {result && result.data?.steps && result.data.steps.length > 0 && (
+            <GanttChart
+              steps={result.data.steps}
+              totalTimeSeconds={result.data.total_time_seconds || 0}
+            />
+          )}
 
           {debug && result.data?.trace && (
             <div style={{ marginTop: '20px' }}>
