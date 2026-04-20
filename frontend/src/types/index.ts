@@ -27,6 +27,7 @@ export interface QueryResponse {
     mode?: 'local' | 'global'
     trace?: QueryTrace
     total_time_seconds?: number
+    parallel_batches?: ParallelBatch[]
   }
 }
 
@@ -39,6 +40,8 @@ export interface DisassemblyStep {
   evidence: string[]
   confidence: number
   safety_level?: number
+  depends_on?: number[]
+  time_seconds: number
   h_score?: number
   s_score?: number
   as_score?: number
@@ -46,7 +49,13 @@ export interface DisassemblyStep {
   robot_loss?: number
   loss_diff?: number
   assignee?: 'human' | 'robot'
-  time_seconds?: number
+}
+
+export interface ParallelBatch {
+  batch_id: number
+  tasks: number[]
+  start_time: number
+  duration: number
 }
 
 export interface QueryTrace {
