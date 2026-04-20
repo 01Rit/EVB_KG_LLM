@@ -14,3 +14,4 @@ pyyaml==6.0.1
 python-multipart==0.0.9
 tiktoken==0.7.0
 PyMuPDF==1.23.0
+pdfplumber==0.11.9

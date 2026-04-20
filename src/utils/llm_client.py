@@ -48,7 +48,7 @@ class LLMClient:
             'messages': messages,
             'temperature': self.temperature,
             'max_tokens': self.max_tokens,
-            'timeout': 60
+            'timeout': 180
         }
         if response_format:
             kwargs['response_format'] = response_format

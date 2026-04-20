@@ -16,8 +16,6 @@ class BaseExpert(ABC):
 
     D_FACTORS = ['Lh_human_loss', 'Lr_robot_loss']
 
-    T_FACTORS = ['T_T']
-
     FACTOR_DESCRIPTIONS = {
         'H1_visibility': '0=完全可见, 3=完全遮挡',
         'H2_space_limitation': '0=宽敞, 3=完全限制',
@@ -30,7 +28,7 @@ class BaseExpert(ABC):
         'S4_human_injury': '0=无风险, 3=高风险',
         'Lh_human_loss': '0=无损失, 3=严重损伤',
         'Lr_robot_loss': '0=无损失, 3=严重损伤',
-        'T_T': '0=短暂操作(<10秒), 1=短时操作(10-30秒), 2=中时操作(30-60秒), 3=长时间操作(>60秒)',
+        'T_T': '0=短暂(<10秒), 1=短时(10-30秒), 2=中时(30-60秒), 3=长时间(>60秒)',
     }
 
     def __init__(self, llm_client: LLMClient):
@@ -50,6 +48,7 @@ class BaseExpert(ABC):
 
     def build_scoring_prompt(self, component_name: str, context: str = '') -> str:
         factor_list = '\n'.join([f"- {f}: {self.FACTOR_DESCRIPTIONS[f]}" for f in self.H_FACTORS + self.S_FACTORS + self.D_FACTORS + self.T_FACTORS])
+        t_factor_format = ', '.join([f'"{f}": 0-3' for f in self.T_FACTORS])
 
         return f'''你是{self.expert_name}（{self.expert_role}）。
 
@@ -61,7 +60,7 @@ class BaseExpert(ABC):
 {factor_list}
 
 返回JSON格式（所有值必须是0-3的整数或浮点数）：
-{{"H1_visibility": 0-3, "H2_space_limitation": 0-3, "H3_object_movement": 0-3, "H4_ergonomic_impact": 0-3, "H5_repetitiveness": 0-3, "S1_high_voltage": 0-3, "S2_chemical_reagent": 0-3, "S3_fire_explosion": 0-3, "S4_human_injury": 0-3, "Lh_human_loss": 0-3, "Lr_robot_loss": 0-3, "T_T": 0-3}}
+{{"H1_visibility": 0-3, "H2_space_limitation": 0-3, "H3_object_movement": 0-3, "H4_ergonomic_impact": 0-3, "H5_repetitiveness": 0-3, "S1_high_voltage": 0-3, "S2_chemical_reagent": 0-3, "S3_fire_explosion": 0-3, "S4_human_injury": 0-3, "Lh_human_loss": 0-3, "Lr_robot_loss": 0-3, {t_factor_format}}}
 '''
 
     def _extract_json(self, response: str) -> str:

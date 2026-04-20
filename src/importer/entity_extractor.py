@@ -167,6 +167,13 @@ class EntityExtractor:
             return json.loads(response)
         except Exception as e:
             logger.warning(f"Failed to parse JSON object: {e}")
+            try:
+                import re
+                json_match = re.search(r'\{[\s\S]*\}', response)
+                if json_match:
+                    return json.loads(json_match.group(0))
+            except:
+                pass
             return {}
 
     def _detect_battery_model(self, text: str, filename: str = '') -> Optional[str]:

@@ -39,9 +39,9 @@ class BatchScorer:
         )
 
         t_expert_scores = [
-            {'H_T': expert_a_scores.get('T_T', 1.5)},
-            {'S_T': expert_b_scores.get('T_T', 1.5)},
-            {'Q_T': expert_c_scores.get('T_T', 1.5)}
+            {'T_T': expert_a_scores.get('T_T', 1.5)},
+            {'T_T': expert_b_scores.get('T_T', 1.5)},
+            {'T_T': expert_c_scores.get('T_T', 1.5)}
         ]
         t_result = self.entropy_calc.calculate_t_score(t_expert_scores)
 
@@ -74,7 +74,7 @@ class BatchScorer:
             raise RuntimeError("Neo4j client required for batch scoring")
 
         components = self.neo4j.get_all_components(battery_model=battery_model, top_k=100)
-        l1_components = [c for c in components if c.get('source_type') in ('manual', 'pdf', 'csv', 'txt') or not c.get('source_type')]
+        l1_components = [c for c in components if c.get('source_type') in ('manual', 'pdf', 'csv', 'txt', 'l1_txt_import', 'l1_import') or not c.get('source_type')]
 
         results = []
         for comp in l1_components:

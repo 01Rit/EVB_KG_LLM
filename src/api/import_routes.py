@@ -112,6 +112,9 @@ async def import_l1_csv(file: UploadFile = File(...), background_tasks: Backgrou
     }
 
     def _do_import():
+        import logging
+        logger = logging.getLogger(__name__)
+
         from src.kg.client import Neo4jClient
         from src.config import settings
 
@@ -161,7 +164,10 @@ async def import_l1_csv(file: UploadFile = File(...), background_tasks: Backgrou
                         f'进度: {i+1}/{len(rows)}'
                     )
 
-                    _auto_score_component(name, battery_model, neo4j)
+                    try:
+                        _auto_score_component(name, battery_model, neo4j)
+                    except Exception as score_err:
+                        logger.warning(f"[L1 CSV] Scoring failed for {name}: {score_err}")
 
                     SyncProgressTracker.update(
                         task_id, 'scoring',
@@ -177,7 +183,11 @@ async def import_l1_csv(file: UploadFile = File(...), background_tasks: Backgrou
                     errors.append(f'Row {i+1}: {str(e)}')
 
             SyncProgressTracker.complete(task_id, f'导入完成: 成功{success}个, 失败{failed}个')
+            logger.info(f"[L1 CSV] Completed: {success} success, {failed} failed")
 
+        except Exception as e:
+            logger.error(f"[L1 CSV] Task {task_id} failed: {e}")
+            SyncProgressTracker.error(task_id, str(e))
         finally:
             neo4j.close()
 
@@ -212,6 +222,9 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
     }
 
     def _do_import():
+        import logging
+        logger = logging.getLogger(__name__)
+
         from src.importer.entity_extractor import EntityExtractor
         from src.kg.client import Neo4jClient
         from src.utils.llm_client import LLMClient
@@ -226,9 +239,12 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
 
         try:
             SyncProgressTracker.update(task_id, 'parsing', 5, 100, '使用LLM提取三元组...')
+            logger.info(f"[L1 TXT Import] Starting extraction for task {task_id}")
 
             extractor = EntityExtractor(llm)
             triplets = extractor.extract_triplets(text, filename=file.filename or '')
+
+            logger.info(f"[L1 TXT Import] Extracted {len(triplets)} triplets")
 
             battery_model = None
             if triplets and 'battery_model' in triplets[0]:
@@ -248,6 +264,8 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
                     existing_nodes[t['tail']] = battery_model
 
             node_count = len(existing_nodes)
+            logger.info(f"[L1 TXT Import] Creating {node_count} nodes")
+
             for idx, (node_name, node_battery_model) in enumerate(existing_nodes.items()):
                 cypher = '''
                 MERGE (n:Component {name: $name})
@@ -259,7 +277,10 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
                     neo4j.execute_query(cypher, {'name': node_name, 'battery_model': node_battery_model})
                     nodes_created += 1
                     if node_battery_model and node_battery_model != 'unknown':
-                        _auto_score_component(node_name, node_battery_model, neo4j)
+                        try:
+                            _auto_score_component(node_name, node_battery_model, neo4j)
+                        except Exception as score_err:
+                            logger.warning(f"[L1 TXT Import] Scoring failed for {node_name}: {score_err}")
                 except Exception as e:
                     errors.append(f"Node error: {str(e)}")
 
@@ -269,6 +290,7 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
                                               f'创建节点: {node_name}', f'节点进度: {idx+1}/{node_count}')
 
             SyncProgressTracker.update(task_id, 'creating_nodes', 60, 100, f'节点创建完成: {nodes_created}个')
+            logger.info(f"[L1 TXT Import] Created {nodes_created} nodes")
 
             for idx, t in enumerate(triplets):
                 head = t.get('head', '')
@@ -311,8 +333,12 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
                     SyncProgressTracker.update(task_id, 'creating_relations', progress, 100,
                                               f'创建关系: {relation}', f'关系进度: {idx+1}/{len(triplets)}')
 
+            logger.info(f"[L1 TXT Import] Completed: {nodes_created} nodes, {relations_created} relations")
             SyncProgressTracker.complete(task_id, f'导入完成: {nodes_created}节点, {relations_created}关系')
 
+        except Exception as e:
+            logger.error(f"[L1 TXT Import] Failed task {task_id}: {e}")
+            SyncProgressTracker.error(task_id, str(e))
         finally:
             neo4j.close()
 
@@ -325,13 +351,7 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
     }
 
 
-@router.post('/import/l1/pdf')
-async def import_l1_pdf(file: UploadFile = File(...)):
-    content = await file.read()
-
-    if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=413, detail='File too large')
-
+def _extract_pdf_text(content: bytes) -> str:
     import fitz
     import tempfile
     import os
@@ -346,8 +366,48 @@ async def import_l1_pdf(file: UploadFile = File(...)):
         for page in doc:
             full_text += page.get_text()
         doc.close()
+
+        if _is_garbled_text(full_text):
+            import pdfplumber
+            with pdfplumber.open(tmp_path) as pdf:
+                full_text = ''
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        full_text += page_text + '\n\n'
+
+        return full_text
     finally:
-        os.unlink(tmp_path)
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+def _is_garbled_text(text: str) -> bool:
+    if not text or len(text.strip()) < 50:
+        return True
+    chinese_chars = [c for c in text if 0x4E00 <= ord(c) <= 0x9FFF]
+    compat_chars = [c for c in text if 0xF900 <= ord(c) <= 0xFAFF]
+    if len(chinese_chars) > 0 and len(compat_chars) > 0:
+        ratio = len(compat_chars) / max(len(chinese_chars), 1)
+        if ratio > 0.3:
+            return True
+    compat_forms = '犐犆犛'
+    if compat_forms in text:
+        return True
+    return False
+
+
+@router.post('/import/l1/pdf')
+async def import_l1_pdf(file: UploadFile = File(...)):
+    content = await file.read()
+
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail='File too large')
+
+    text = _extract_pdf_text(content)
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail='PDF is empty or could not extract text')
 
     from src.importer.entity_extractor import EntityExtractor
     from src.utils.llm_client import LLMClient
@@ -360,7 +420,7 @@ async def import_l1_pdf(file: UploadFile = File(...)):
     )
     extractor = EntityExtractor(llm)
 
-    triplets = extractor.extract_triplets(full_text)
+    triplets = extractor.extract_triplets(text)
 
     from src.kg.client import Neo4jClient
 
@@ -432,23 +492,7 @@ async def import_l2(file: UploadFile = File(...), background_tasks: BackgroundTa
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail='File too large')
 
-    import fitz
-    import tempfile
-    import os
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-        tmp.write(content)
-        tmp_path = tmp.name
-
-    try:
-        doc = fitz.open(tmp_path)
-        full_text = ''
-        for page in doc:
-            full_text += page.get_text()
-        doc.close()
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+    full_text = _extract_pdf_text(content)
 
     if not full_text.strip():
         raise HTTPException(status_code=400, detail='PDF is empty or could not extract text')
