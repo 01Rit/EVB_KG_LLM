@@ -160,7 +160,7 @@ class Planner:
 
         time_estimator = TimeEstimator()
         for step in steps:
-            time_score = step.get('time_score', 1.5)
+            time_score = step.get('time_score') or 1.5
             step['time_seconds'] = time_estimator.calculate_time_from_score(time_score)
 
         total_time_seconds = sum(s['time_seconds'] for s in steps)

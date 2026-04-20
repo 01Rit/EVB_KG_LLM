@@ -42,6 +42,8 @@ class TimeEstimator:
         return int(time_seconds)
 
     def calculate_time_from_score(self, time_score: float) -> int:
+        if time_score is None:
+            time_score = 1.5
         base_time = (time_score / 3) * self.MTM_BASE_SECONDS
         return int(base_time)
 
