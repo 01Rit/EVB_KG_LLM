@@ -26,6 +26,7 @@ export interface QueryResponse {
     response?: string
     mode?: 'local' | 'global'
     trace?: QueryTrace
+    total_time_seconds?: number
   }
 }
 
