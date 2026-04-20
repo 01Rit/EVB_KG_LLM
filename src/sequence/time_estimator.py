@@ -41,19 +41,13 @@ class TimeEstimator:
 
         return int(time_seconds)
 
+    def calculate_time_from_score(self, time_score: float) -> int:
+        base_time = (time_score / 3) * self.MTM_BASE_SECONDS
+        return int(base_time)
+
     def estimate_from_component(self, component: Dict) -> int:
-        operation_score = component.get('operation_time_score', 1.0)
-
-        tools = component.get('tool_required', [])
-        tool_time = max(
-            [self.TOOL_SWITCH_TIMES.get(t.lower(), self.default_tool_switch) for t in tools],
-            default=0
-        )
-
-        position = component.get('position_difficulty', 'medium')
-        position_time = self.POSITION_TIMES.get(position.lower(), self.default_position)
-
-        return self.calculate_time(operation_score, tool_time, position_time)
+        time_score = component.get('time_score', 1.5)
+        return self.calculate_time_from_score(time_score)
 
     def estimate_sequence_time(self, components: List[Dict]) -> Dict:
         total_time = 0
