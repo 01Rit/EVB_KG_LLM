@@ -38,6 +38,13 @@ class BatchScorer:
             robot_loss=robot_loss
         )
 
+        t_expert_scores = [
+            {'H_T': expert_a_scores.get('T_T', 1.5)},
+            {'S_T': expert_b_scores.get('T_T', 1.5)},
+            {'Q_T': expert_c_scores.get('T_T', 1.5)}
+        ]
+        t_result = self.entropy_calc.calculate_t_score(t_expert_scores)
+
         result = {
             'component': component_name,
             'battery_model': battery_model,
@@ -51,6 +58,10 @@ class BatchScorer:
             'robot_loss': robot_loss,
             'loss_diff': final_scores['loss_diff'],
             'assignee': assignee,
+            'time_score': t_result['t_score'],
+            'h_time_factor': t_result['h_time_factor'],
+            's_time_factor': t_result['s_time_factor'],
+            'q_time_factor': t_result['q_time_factor'],
         }
 
         if self.neo4j:
@@ -63,7 +74,7 @@ class BatchScorer:
             raise RuntimeError("Neo4j client required for batch scoring")
 
         components = self.neo4j.get_all_components(battery_model=battery_model, top_k=100)
-        l1_components = [c for c in components if c.get('source_type') == 'L1']
+        l1_components = [c for c in components if c.get('source_type') in ('manual', 'pdf', 'csv', 'txt') or not c.get('source_type')]
 
         results = []
         for comp in l1_components:
@@ -95,6 +106,10 @@ class BatchScorer:
             'robot_loss': score_data['robot_loss'],
             'loss_diff': score_data['loss_diff'],
             'assignee': score_data['assignee'],
+            'time_score': score_data.get('time_score', 0),
+            'h_time_factor': score_data.get('h_time_factor', 1.5),
+            's_time_factor': score_data.get('s_time_factor', 1.5),
+            'q_time_factor': score_data.get('q_time_factor', 1.5),
         }
 
         try:
