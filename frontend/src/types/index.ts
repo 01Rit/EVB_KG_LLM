@@ -42,6 +42,8 @@ export interface DisassemblyStep {
   safety_level?: number
   depends_on?: number[]
   time_seconds: number
+  start_time?: number
+  duration?: number
   h_score?: number
   s_score?: number
   as_score?: number
