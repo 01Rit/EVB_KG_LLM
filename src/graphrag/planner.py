@@ -219,7 +219,7 @@ class Planner:
 
 
 def compute_parallel_batches(steps):
-    """调度任务：人类串行，机器人串行，可并行"""
+    """调度任务：考虑depends_on依赖 + 资源约束（人类串行，机器人串行）"""
     if not steps:
         return []
 
@@ -231,13 +231,24 @@ def compute_parallel_batches(steps):
     for step in sorted_steps:
         duration = step.get('time_seconds', 0)
         assignee = step.get('assignee', 'human')
+        deps = step.get('depends_on', [])
+
+        # 计算依赖完成时间
+        dep_end_time = 0
+        for dep_id in deps:
+            dep_step = next((s for s in sorted_steps if s.get('id') == dep_id), None)
+            if dep_step:
+                dep_end = dep_step.get('start_time', 0) + dep_step.get('time_seconds', 0)
+                dep_end_time = max(dep_end_time, dep_end)
 
         if assignee == 'robot':
-            step['start_time'] = robot_time
-            robot_time += duration
+            start_time = max(robot_time, dep_end_time)
+            step['start_time'] = start_time
+            robot_time = start_time + duration
         else:  # human
-            step['start_time'] = human_time
-            human_time += duration
+            start_time = max(human_time, dep_end_time)
+            step['start_time'] = start_time
+            human_time = start_time + duration
 
         step['duration'] = duration
 
