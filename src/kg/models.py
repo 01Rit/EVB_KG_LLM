@@ -36,6 +36,7 @@ class EvidenceNode(BaseModel):
     properties: dict[str, Any]
     relationships: list[str] = []
     text: str
+    evidence_ids: list[str] = []
 
 
 class EvidenceGraph(BaseModel):
