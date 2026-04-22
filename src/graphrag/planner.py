@@ -219,50 +219,26 @@ class Planner:
 
 
 def compute_parallel_batches(steps):
-    """根据depends_on计算并行批次"""
+    """调度任务：人类串行，机器人串行，可并行"""
     if not steps:
         return []
 
     sorted_steps = sorted(steps, key=lambda s: s.get('id', 0))
 
-    batches = []
-    processed = set()
+    human_time = 0
+    robot_time = 0
 
-    while len(processed) < len(sorted_steps):
-        current_batch = []
-        for step in sorted_steps:
-            if step['id'] in processed:
-                continue
-            deps = step.get('depends_on', [])
-            if all(d in processed for d in deps):
-                current_batch.append(step)
+    for step in sorted_steps:
+        duration = step.get('time_seconds', 0)
+        assignee = step.get('assignee', 'human')
 
-        if not current_batch:
-            if len(processed) < len(sorted_steps):
-                unprocessed = [s['id'] for s in sorted_steps if s['id'] not in processed]
-                raise ValueError(f"Circular dependency detected. Unprocessed steps: {unprocessed}")
-            break
+        if assignee == 'robot':
+            step['start_time'] = robot_time
+            robot_time += duration
+        else:  # human
+            step['start_time'] = human_time
+            human_time += duration
 
-        batch_start = 0
-        for step in current_batch:
-            for dep_id in step.get('depends_on', []):
-                dep = next((s for s in sorted_steps if s['id'] == dep_id), None)
-                if dep:
-                    dep_end = dep.get('start_time', 0) + dep.get('time_seconds', 0)
-                    batch_start = max(batch_start, dep_end)
+        step['duration'] = duration
 
-        batch_duration = max(s['time_seconds'] for s in current_batch)
-
-        for step in current_batch:
-            step['start_time'] = batch_start
-            step['duration'] = batch_duration
-            processed.add(step['id'])
-
-        batches.append({
-            'batch_id': len(batches),
-            'tasks': [s['id'] for s in current_batch],
-            'start_time': batch_start,
-            'duration': batch_duration
-        })
-
-    return batches
+    return steps
