@@ -74,6 +74,7 @@ body {
   display: flex;
   border-bottom: 1px solid #e5e7eb;
   background: #f9fafb;
+  min-width: 0;
 }
 .gantt-label-col {
   width: 150px;
@@ -81,6 +82,9 @@ body {
 }
 .gantt-time-axis {
   display: flex;
+  flex: 1;
+  min-width: 0;
+  position: relative;
 }
 .time-marker {
   min-width: 80px;
@@ -107,6 +111,8 @@ body {
 .gantt-bar-container {
   flex: 1;
   padding: 8px 0;
+  min-width: 0;
+  position: relative;
 }
 .gantt-bar {
   height: 24px;
