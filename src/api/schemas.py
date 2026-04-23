@@ -8,12 +8,21 @@ class PlanRequest(BaseModel):
     debug: bool = False
 
 
+class EvidenceSource(BaseModel):
+    node_id: str
+    node_type: str
+    name: str
+    text: Optional[str] = None
+    properties: Optional[dict[str, Any]] = None
+
+
 class Step(BaseModel):
     id: int
     component: str
     action: str
     tool: list[str] = []
     evidence: list[str] = []
+    evidence_sources: list[EvidenceSource] = []
     confidence: Optional[float] = None
     safety_level: Optional[int] = None
     h_score: Optional[float] = None
