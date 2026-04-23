@@ -147,6 +147,14 @@ class Planner:
         
         start = time.time()
         initial_plan = self.generator.generate(query, evidence_graph, battery_model, context, kg_context)
+
+        # 新增：证据追溯
+        from src.graphrag.evidence_tracer import EvidenceTracer
+        tracer = EvidenceTracer()
+
+        if initial_plan.get('steps'):
+            initial_plan['steps'] = tracer.trace_all_steps(initial_plan['steps'], evidence_graph)
+
         if debug:
             trace['timing']['generate_ms'] = int((time.time() - start) * 1000)
         
