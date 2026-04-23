@@ -74,6 +74,11 @@ class Planner:
         except Exception as e:
             logger.warning(f'Failed to enrich steps with scores: {e}')
             return steps
+
+    def _enrich_steps_with_remanufacturing(self, steps: list, battery_model: str) -> list:
+        from src.graphrag.remanufacturing_scorer import RemanufacturingScorer
+        scorer = RemanufacturingScorer()
+        return scorer.score_all_steps(steps, battery_model)
     
     async def plan(self, query: str, battery_model: str, context: Optional[list[str]] = None,
                    mode: str = "local", debug: bool = False) -> dict:
@@ -174,6 +179,7 @@ class Planner:
 
         steps = final_plan.get('steps', [])
         steps = self._enrich_steps_with_scores(steps, battery_model)
+        steps = self._enrich_steps_with_remanufacturing(steps, battery_model)
 
         time_estimator = TimeEstimator()
         for step in steps:
