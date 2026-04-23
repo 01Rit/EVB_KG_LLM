@@ -32,6 +32,9 @@ class Step(BaseModel):
     robot_loss: Optional[float] = None
     loss_diff: Optional[float] = None
     assignee: Optional[str] = None
+    remanufacturing_pathway: Optional[str] = None
+    pathway_confidence: Optional[float] = None
+    pathway_scores: Optional[dict[str, float]] = None
 
 
 class PlanResponse(BaseModel):
