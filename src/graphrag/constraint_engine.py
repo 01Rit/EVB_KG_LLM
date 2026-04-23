@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 class ConstraintEngine:
     OUTER_KEYWORDS = ['housing', 'cover', 'shell', 'case', 'cap']
-    INNER_KEYWORDS = ['cell', 'module', 'cmc', 'electrode']
+    INNER_KEYWORDS = ['cell', 'module', 'cmc', 'electrode', 'insulator']
 
     def __init__(self, neo4j_client=None):
         self._neo4j = neo4j_client

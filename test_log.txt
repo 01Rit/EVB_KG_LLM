@@ -1,0 +1,28 @@
+Starting test
+All imports succeeded
+
+Test 1: Markdown-wrapped JSON
+  H1_visibility: 1.0 (expected 1.0)
+  H2_space_limitation: 1.5 (expected 1.5)
+  S1_high_voltage: 2.0 (expected 2.0)
+  PASSED
+
+Test 2: Three experts with different scores
+  Expert A H1: 1.0 (expected 1.0)
+  Expert B H1: 2.0 (expected 2.0)
+  Expert C H1: 0.5 (expected 0.5)
+  h_score: 0.391
+  s_score: 0.332
+  as_score: 0.362
+  PASSED
+
+Test 3: Verify scores differ from uniform 1.5 case
+  h_score: 0.391
+  s_score: 0.332
+  as_score: 0.362
+  PASSED
+
+==================================================
+ALL TESTS PASSED!
+Three-expert scoring system is working correctly.
+==================================================

@@ -87,6 +87,37 @@ class Neo4jClient:
             '''
             return self.execute_query(cypher, {'top_k': top_k})
 
+    def search_l2_entities(self, query: str, top_k: int = 30) -> list[dict]:
+        cypher = '''
+        MATCH (e:L2_Entity)
+        WHERE e.name CONTAINS $query OR e.battery_model CONTAINS $query OR e.entity_type CONTAINS $query
+        RETURN e.id as id, e.name as name, e.entity_type as entity_type,
+               e.battery_model as battery_model, e.source_evidence as source_evidence,
+               e.doc_id as doc_id
+        LIMIT $top_k
+        '''
+        return self.execute_query(cypher, {'query': query, 'top_k': top_k})
+
+    def get_all_l2_entities(self, battery_model: str = None, top_k: int = 100) -> list[dict]:
+        if battery_model:
+            cypher = '''
+            MATCH (e:L2_Entity {battery_model: $battery_model})
+            RETURN e.id as id, e.name as name, e.entity_type as entity_type,
+                   e.battery_model as battery_model, e.source_evidence as source_evidence,
+                   e.doc_id as doc_id
+            LIMIT $top_k
+            '''
+            return self.execute_query(cypher, {'battery_model': battery_model, 'top_k': top_k})
+        else:
+            cypher = '''
+            MATCH (e:L2_Entity)
+            RETURN e.id as id, e.name as name, e.entity_type as entity_type,
+                   e.battery_model as battery_model, e.source_evidence as source_evidence,
+                   e.doc_id as doc_id
+            LIMIT $top_k
+            '''
+            return self.execute_query(cypher, {'top_k': top_k})
+
     def get_all_relations(self, battery_model: str = None) -> list[dict]:
         if battery_model:
             cypher = '''
@@ -128,13 +159,13 @@ class Neo4jClient:
     def get_subgraph(self, node_ids: list[str], depth: int = 2) -> dict:
         if not node_ids:
             return {'nodes': [], 'edges': []}
-        
+
         cypher = f'''
-        MATCH path = (c:Component)-[r*1..{depth}]-(related)
+        MATCH path = (c:Component|L2_Entity)-[r*1..{depth}]-(related)
         WHERE c.id IN $node_ids
         RETURN nodes(path) as nodes, relationships(path) as rels
         '''
-        
+
         results = self.execute_query(cypher, {'node_ids': node_ids})
         
         nodes = []

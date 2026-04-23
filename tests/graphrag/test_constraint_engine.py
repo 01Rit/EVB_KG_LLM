@@ -16,7 +16,7 @@ class TestConstraintEngine:
         before_pairs = [(c['head'], c['tail']) for c in constraints if c['relation'] == 'BEFORE']
 
         assert ('upper_housing', 'cell') in before_pairs
-        assert ('insulator', 'cell') in before_pairs
+        assert ('upper_housing', 'insulator') in before_pairs
 
     def test_is_outer_true(self):
         engine = ConstraintEngine()

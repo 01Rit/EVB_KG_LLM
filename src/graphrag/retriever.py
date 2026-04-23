@@ -36,29 +36,53 @@ class MultiPathRetriever:
 
     def _retrieve_components(self, query: str, top_k: int) -> list[EvidenceNode]:
         results = self.neo4j.search_components(query, top_k)
-        return [
-            EvidenceNode(
+        l2_results = self.neo4j.search_l2_entities(query, top_k)
+
+        nodes = []
+        for r in results:
+            nodes.append(EvidenceNode(
                 node_type='Component',
                 id=r.get('id', ''),
                 name=r.get('name', ''),
                 properties=r,
                 text=f'Component: {r.get("name")}, Model: {r.get("battery_model")}, Tools: {r.get("tool_required")}, Safety: {r.get("safety_level")}'
-            )
-            for r in results
-        ]
+            ))
+
+        for r in l2_results:
+            nodes.append(EvidenceNode(
+                node_type='L2_Entity',
+                id=r.get('id', ''),
+                name=r.get('name', ''),
+                properties=r,
+                text=f'Entity: {r.get("name")}, Type: {r.get("entity_type")}, Model: {r.get("battery_model")}, Evidence: {r.get("source_evidence", "")}'
+            ))
+
+        return nodes
 
     def get_all_components(self, battery_model: str = None, top_k: int = 100) -> list[EvidenceNode]:
         results = self.neo4j.get_all_components(battery_model, top_k)
-        return [
-            EvidenceNode(
+        l2_results = self.neo4j.get_all_l2_entities(battery_model, top_k)
+
+        nodes = []
+        for r in results:
+            nodes.append(EvidenceNode(
                 node_type='Component',
                 id=r.get('id', ''),
                 name=r.get('name', ''),
                 properties=r,
                 text=f'Component: {r.get("name")}, Model: {r.get("battery_model")}, Tools: {r.get("tool_required")}, Safety: {r.get("safety_level")}'
-            )
-            for r in results
-        ]
+            ))
+
+        for r in l2_results:
+            nodes.append(EvidenceNode(
+                node_type='L2_Entity',
+                id=r.get('id', ''),
+                name=r.get('name', ''),
+                properties=r,
+                text=f'Entity: {r.get("name")}, Type: {r.get("entity_type")}, Model: {r.get("battery_model")}, Evidence: {r.get("source_evidence", "")}'
+            ))
+
+        return nodes
 
     def get_all_relations(self, battery_model: str = None) -> list[dict]:
         return self.neo4j.get_all_relations(battery_model)
