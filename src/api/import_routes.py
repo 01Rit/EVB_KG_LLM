@@ -376,10 +376,62 @@ def _extract_pdf_text(content: bytes) -> str:
                     if page_text:
                         full_text += page_text + '\n\n'
 
+        if _is_garbled_text(full_text):
+            full_text = _extract_with_pymupdf_dict(tmp_path)
+
+        if _is_garbled_text(full_text):
+            full_text = _extract_fallback_methods(tmp_path)
+
         return full_text
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+
+def _extract_with_pymupdf_dict(tmp_path: str) -> str:
+    import fitz
+    doc = fitz.open(tmp_path)
+    full_text = ''
+    for page in doc:
+        text_dict = page.get_text("dict")
+        for block in text_dict.get("blocks", []):
+            if block.get("type") == 0:
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        full_text += span.get("text", "")
+                    full_text += "\n"
+    doc.close()
+    return full_text
+
+
+def _extract_fallback_methods(tmp_path: str) -> str:
+    import fitz
+    import logging
+    logger = logging.getLogger(__name__)
+
+    methods = [
+        ("blocks", lambda p: "\n".join(
+            span.get("text", "") for block in p.get_text("dict", flags=0).get("blocks", []) if block.get("type") == 0
+            for line in block.get("lines", []) for span in line.get("spans", [])
+        )),
+        ("xhtml", lambda p: p.get_text("xhtml")),
+        ("xml", lambda p: p.get_text("xml")),
+    ]
+
+    for method_name, extract_func in methods:
+        try:
+            doc = fitz.open(tmp_path)
+            text = ""
+            for page in doc:
+                text += extract_func(page) + "\n"
+            doc.close()
+            if text.strip() and not _is_garbled_text(text):
+                logger.info(f"PymuPDF {method_name} extraction succeeded")
+                return text
+        except Exception as e:
+            logger.warning(f"PymuPDF {method_name} extraction failed: {e}")
+
+    return ""
 
 
 def _is_garbled_text(text: str) -> bool:
@@ -391,8 +443,7 @@ def _is_garbled_text(text: str) -> bool:
         ratio = len(compat_chars) / max(len(chinese_chars), 1)
         if ratio > 0.3:
             return True
-    compat_forms = '犐犆犛'
-    if compat_forms in text:
+    if '犐犆犛' in text or '犐犆犇' in text:
         return True
     return False
 

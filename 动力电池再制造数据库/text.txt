@@ -1,0 +1,13 @@
+根据文件内容分析，与AUDI A3 EVB拆卸步骤相关性最强的10个文件：
+
+序号	文件路径	相关性
+1	Audi_A3_disassembly.txt	⭐⭐⭐⭐⭐ 直接包含A3拆卸12步
+2	技术文档11_AI.md	⭐⭐⭐⭐⭐ 包含系统设计和技术架构
+3	阶段2关键技术文档.md	⭐⭐⭐⭐⭐ 包含A3时间数据 (1894.1s, 1757.3s)
+4	docs/superpowers/specs/...phase1-kg-graphrag-design.md	⭐⭐⭐⭐ 完整数据模型和API规范
+5	B_残余价值评估\Xia 等 - 2024 - Large language models...	⭐⭐⭐⭐ 电池生命周期管理
+6	A_拆卸序列规划\Wu 等 - 2024 - A Knowledge Graph Based Disass...	⭐⭐⭐⭐ 知识图谱拆卸
+7	A_拆卸序列规划\Lee 等 - 2022 - Task allocation and planning	⭐⭐⭐⭐ 任务分配与人机协作
+8	D_人机协同拆卸\Zhu 等 - 2024 - Multi-objective human-robot	⭐⭐⭐⭐ 人机协作拆卸
+9	E_知识图谱方法\Zhu 等 - A knowledge graph-based intelligent	⭐⭐⭐⭐ 知识图谱智能系统
+10	B_残余价值评估\Zhang 等 - 2025 - An LLM-based knowledge and...	⭐⭐⭐⭐ LLM知识图谱

@@ -142,7 +142,9 @@ class NaturalLanguageFeedback:
             source_type = getattr(e, 'node_type', 'Unknown')
             name = getattr(e, 'name', '')
             text = getattr(e, 'text', '')
-            evidence_parts.append(f"【来源：本地KG-{source_type}:{name}】{text}")
+            properties = getattr(e, 'properties', {})
+            props_str = ', '.join([f"{k}: {v}" for k, v in properties.items() if v is not None and v != ''])
+            evidence_parts.append(f"【来源：本地KG-{source_type}:{name}】{text} | 属性: {props_str}")
 
         web_parts = []
         for r in web_results[:5]:
@@ -166,6 +168,7 @@ class NaturalLanguageFeedback:
 2. 每个论点后用()标注来源，格式：【来源：类型:名称】
 3. 如果证据不足，说明"根据现有资料无法确定..."
 4. 回答要有条理，适当分段
+5. 充分利用证据中的所有属性信息（包括但不限于safety_level、tool_required、entity_type等）
 
 回答：'''
 
