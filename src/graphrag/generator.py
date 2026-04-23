@@ -48,8 +48,10 @@ class PlanGenerator:
 - 所需工具 (tool) - 列出所需工具
 - 安全等级 (safety_level) - 1-5的数字
 - 依赖步骤 (depends_on) - 哪些步骤必须先完成
+- 置信度 (confidence) - 本步骤的置信度 (0-1)
+- 证据IDs (evidence_ids) - 本步骤使用的证据节点ID列表，从检索结果中选择
 
-请以JSON格式返回，包含steps数组，每个元素包含: id, component, action, tool, safety_level, depends_on'''
+请以JSON格式返回，包含steps数组，每个元素包含: id, component, action, tool, safety_level, depends_on, confidence, evidence_ids'''
 
         try:
             result = self.llm.generate_json(prompt, ['steps'])
