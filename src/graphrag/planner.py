@@ -16,13 +16,22 @@ logger = logging.getLogger(__name__)
 
 
 class Planner:
-    def __init__(self, llm_client: LLMClient, retriever: MultiPathRetriever, neo4j_client=None):
+    def __init__(self, llm_client: LLMClient, retriever: MultiPathRetriever, neo4j_client=None,
+                 use_constraint_retriever: bool = False):
         self.rewriter = QueryRewriter(llm_client)
-        self.retriever = retriever
         self.ranker = EvidenceRanker()
         self.generator = PlanGenerator(llm_client)
-        self.feedback = FeedbackLoop(retriever, self.ranker, self.generator)
         self._neo4j_client = neo4j_client
+
+        if use_constraint_retriever and neo4j_client:
+            from src.graphrag.constraint_engine import ConstraintEngine
+            from src.graphrag.constrained_retriever import ConstraintAwareRetriever
+            constraint_engine = ConstraintEngine(neo4j_client)
+            self.retriever = ConstraintAwareRetriever(neo4j_client, None, constraint_engine)
+        else:
+            self.retriever = retriever
+
+        self.feedback = FeedbackLoop(self.retriever, self.ranker, self.generator)
 
         if neo4j_client:
             community_detector = CommunityDetector(neo4j_client, llm_client)
