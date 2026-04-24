@@ -82,7 +82,16 @@ async def import_l1_manual(data: L1ComponentData):
         if len(result) > 0:
             _auto_score_component(data.name, data.battery_model, neo4j)
 
-        return {'code': 0, 'message': 'Component imported successfully'}
+        return {
+            'code': 0,
+            'message': '## ✅ L1组件导入成功\n\n**组件名称**: {name}\n**电池型号**: {battery_model}\n**工具**: {tools}\n**安全等级**: {safety}\n**前置部件**: {precedence}'.format(
+                name=data.name,
+                battery_model=data.battery_model,
+                tools=', '.join(data.tool_required) if data.tool_required else '无',
+                safety=data.safety_level,
+                precedence=', '.join(data.precedence) if data.precedence else '无'
+            )
+        }
     finally:
         neo4j.close()
 
@@ -107,7 +116,7 @@ async def import_l1_csv(file: UploadFile = File(...), background_tasks: Backgrou
         'total': total,
         'current': 0,
         'stage': 'parsing',
-        'message': f'解析CSV文件，共{len(rows)}行',
+        'message': f'## 📄 解析CSV文件\n\n共 **{len(rows)}** 行数据',
         'detail': None
     }
 
@@ -160,8 +169,8 @@ async def import_l1_csv(file: UploadFile = File(...), background_tasks: Backgrou
                     SyncProgressTracker.update(
                         task_id, 'creating_nodes',
                         (i + 1) * 2 - 1, total,
-                        f'创建组件: {name}',
-                        f'进度: {i+1}/{len(rows)}'
+                        f'**🔧 创建组件**: {name}',
+                        f'进度: **{i+1}/{len(rows)}**'
                     )
 
                     try:
@@ -172,8 +181,8 @@ async def import_l1_csv(file: UploadFile = File(...), background_tasks: Backgrou
                     SyncProgressTracker.update(
                         task_id, 'scoring',
                         (i + 1) * 2, total,
-                        f'评分组件: {name}',
-                        f'进度: {i+1}/{len(rows)}'
+                        f'**📊 评分组件**: {name}',
+                        f'进度: **{i+1}/{len(rows)}**'
                     )
 
                     success += 1
@@ -182,7 +191,10 @@ async def import_l1_csv(file: UploadFile = File(...), background_tasks: Backgrou
                     failed += 1
                     errors.append(f'Row {i+1}: {str(e)}')
 
-            SyncProgressTracker.complete(task_id, f'导入完成: 成功{success}个, 失败{failed}个')
+            error_detail = "\n".join([f"- {e}" for e in errors[:5]]) if errors else ""
+            error_msg = f"**错误详情**:\n{error_detail}" if errors else ""
+            complete_msg = f'## ✅ L1 CSV导入完成\n\n**成功**: {success} 个\n**失败**: {failed} 个\n\n{error_msg}'
+            SyncProgressTracker.complete(task_id, complete_msg)
             logger.info(f"[L1 CSV] Completed: {success} success, {failed} failed")
 
         except Exception as e:
@@ -196,7 +208,7 @@ async def import_l1_csv(file: UploadFile = File(...), background_tasks: Backgrou
     return {
         'code': 0,
         'task_id': task_id,
-        'message': f'开始导入{len(rows)}行组件，订阅进度: /api/v1/import/progress/{task_id}',
+        'message': f'## 📥 开始L1 CSV导入\n\n共 **{len(rows)}** 行组件\n\n> 📊 订阅进度: `/api/v1/import/progress/{task_id}`',
         'total': len(rows)
     }
 
@@ -217,7 +229,7 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
         'total': 100,
         'current': 0,
         'stage': 'parsing',
-        'message': '解析TXT文件...',
+        'message': '## 📝 解析TXT文件\n\n正在提取拆卸三元组...',
         'detail': None
     }
 
@@ -238,7 +250,7 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
         )
 
         try:
-            SyncProgressTracker.update(task_id, 'parsing', 5, 100, '使用LLM提取三元组...')
+            SyncProgressTracker.update(task_id, 'parsing', 5, 100, '**🤖 使用LLM提取三元组...**')
             logger.info(f"[L1 TXT Import] Starting extraction for task {task_id}")
 
             extractor = EntityExtractor(llm)
@@ -250,7 +262,7 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
             if triplets and 'battery_model' in triplets[0]:
                 battery_model = triplets[0]['battery_model']
 
-            SyncProgressTracker.update(task_id, 'parsing', 20, 100, f'提取到{len(triplets)}个三元组')
+            SyncProgressTracker.update(task_id, 'parsing', 20, 100, f'**📋 提取到 {len(triplets)} 个三元组**')
 
             nodes_created = 0
             relations_created = 0
@@ -287,9 +299,9 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
                 if idx % max(1, node_count // 10) == 0:
                     progress = 20 + int(40 * idx / max(node_count, 1))
                     SyncProgressTracker.update(task_id, 'creating_nodes', progress, 100,
-                                              f'创建节点: {node_name}', f'节点进度: {idx+1}/{node_count}')
+                                              f'**🔵 创建节点**: {node_name}', f'节点进度: **{idx+1}/{node_count}**')
 
-            SyncProgressTracker.update(task_id, 'creating_nodes', 60, 100, f'节点创建完成: {nodes_created}个')
+            SyncProgressTracker.update(task_id, 'creating_nodes', 60, 100, f'## ✅ 节点创建完成\n\n**共创建**: {nodes_created} 个节点')
             logger.info(f"[L1 TXT Import] Created {nodes_created} nodes")
 
             for idx, t in enumerate(triplets):
@@ -331,10 +343,10 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
                 if idx % max(1, len(triplets) // 10) == 0:
                     progress = 60 + int(35 * idx / max(len(triplets), 1))
                     SyncProgressTracker.update(task_id, 'creating_relations', progress, 100,
-                                              f'创建关系: {relation}', f'关系进度: {idx+1}/{len(triplets)}')
+                                              f'**🔗 创建关系**: {relation}', f'关系进度: **{idx+1}/{len(triplets)}**')
 
             logger.info(f"[L1 TXT Import] Completed: {nodes_created} nodes, {relations_created} relations")
-            SyncProgressTracker.complete(task_id, f'导入完成: {nodes_created}节点, {relations_created}关系')
+            SyncProgressTracker.complete(task_id, f'## ✅ L1 TXT导入完成\n\n**节点创建**: {nodes_created} 个\n**关系创建**: {relations_created} 个\n\n**三元组详情**:\n' + '\n'.join([f'- {t.get("head", "")} → [{t.get("relation", "")}] → {t.get("tail", "")}' for t in triplets[:5]] + (['...'] if len(triplets) > 5 else [])))
 
         except Exception as e:
             logger.error(f"[L1 TXT Import] Failed task {task_id}: {e}")
@@ -347,7 +359,7 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
     return {
         'code': 0,
         'task_id': task_id,
-        'message': f'开始导入TXT三元组，订阅进度: /api/v1/import/progress/{task_id}'
+        'message': f'## 📥 开始L1 TXT三元组导入\n\n> 📊 订阅进度: `/api/v1/import/progress/{task_id}`'
     }
 
 
@@ -527,7 +539,7 @@ async def import_l1_pdf(file: UploadFile = File(...)):
 
         return {
             'code': 0,
-            'message': f'Imported {nodes_created} entities, {relations_created} relations',
+            'message': f'## ✅ L1 PDF导入完成\n\n**节点创建**: {nodes_created} 个\n**关系创建**: {relations_created} 个',
             'nodes': nodes_created,
             'relations': relations_created,
             'errors': errors[:10]
@@ -560,7 +572,7 @@ async def import_l2(file: UploadFile = File(...), background_tasks: BackgroundTa
         'total': 100,
         'current': 0,
         'stage': 'parsing',
-        'message': '准备解析PDF...',
+        'message': '## 📑 准备解析L2文档\n\nPDF文件: **{filename}**'.format(filename=file.filename or 'unknown'),
         'detail': None
     }
 
@@ -585,7 +597,7 @@ async def import_l2(file: UploadFile = File(...), background_tasks: BackgroundTa
             importer = L2Importer(neo4j, llm, progress_callback=progress_callback)
             result = importer.import_pdf(full_text, file.filename or 'unknown')
 
-            SyncProgressTracker.complete(task_id, f'L2导入完成: {result["entities_created"]}实体, {result["terms_created"]}术语, {result["relations_created"]}关系')
+            SyncProgressTracker.complete(task_id, f'## ✅ L2导入完成\n\n**实体创建**: {result["entities_created"]} 个\n**术语创建**: {result["terms_created"]} 个\n**关系创建**: {result["relations_created"]} 个\n\n> 📝 L2文档节点已创建，关联L3术语节点')
 
         except Exception as e:
             logger.error(f"L2 import failed: {e}")
@@ -599,7 +611,7 @@ async def import_l2(file: UploadFile = File(...), background_tasks: BackgroundTa
     return {
         'code': 0,
         'task_id': task_id,
-        'message': f'开始L2导入，订阅进度: /api/v1/import/progress/{task_id}'
+        'message': f'## 📥 开始L2文档导入\n\n文件: **{file.filename or "unknown"}**\n\n> 📊 订阅进度: `/api/v1/import/progress/{task_id}`'
     }
 
 
@@ -629,7 +641,232 @@ async def import_l3(data: Dict[str, Any]):
                 'units': term.get('units', '')
             })
 
-        return {'code': 0, 'message': f'Imported {len(terms)} terms'}
+        return {'code': 0, 'message': f'## ✅ L3术语导入成功\n\n**导入数量**: {len(terms)} 个术语\n\n' + '\n'.join([f'- **{t.get("term_id", "")}**: {t.get("definition", "")}' for t in terms[:10]])}
+    finally:
+        neo4j.close()
+
+
+@router.post('/import/l1/markdown')
+async def import_l1_markdown(file: UploadFile = File(...)):
+    content = await file.read()
+
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail='File too large')
+
+    try:
+        text = content.decode('utf-8')
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail='Invalid file encoding')
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail='Markdown file is empty')
+
+    from src.importer.entity_extractor import EntityExtractor
+    from src.utils.llm_client import LLMClient
+    from src.config import settings
+    from src.kg.client import Neo4jClient
+
+    llm = LLMClient(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        model=settings.llm_model
+    )
+    extractor = EntityExtractor(llm)
+
+    try:
+        triplets = extractor.extract_triplets(text, filename=file.filename or '')
+    except Exception as e:
+        logger.error(f"Triplet extraction failed: {e}")
+        triplets = []
+
+    neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+
+    try:
+        nodes_created = 0
+        relations_created = 0
+        errors = []
+
+        existing_nodes = set()
+        for t in triplets:
+            if t.get('head'):
+                existing_nodes.add(t['head'])
+            if t.get('tail'):
+                existing_nodes.add(t['tail'])
+
+        for node_name in existing_nodes:
+            cypher = '''
+            MERGE (n:Component {name: $name})
+            SET n.source_type = 'l1_markdown_import'
+            RETURN n
+            '''
+            try:
+                neo4j.execute_query(cypher, {'name': node_name})
+                nodes_created += 1
+            except Exception as e:
+                errors.append(f"Node error: {str(e)}")
+
+        for t in triplets:
+            head = t.get('head', '')
+            relation = t.get('relation', '')
+            tail = t.get('tail', '')
+
+            if not head or not relation or not tail:
+                continue
+
+            cypher = '''
+            MATCH (h:Component {name: $head})
+            MATCH (t:Component {name: $tail})
+            MERGE (h)-[r:RELATES {type: $relation}]->(t)
+            RETURN h, r, t
+            '''
+            try:
+                neo4j.execute_query(cypher, {
+                    'head': head,
+                    'relation': relation,
+                    'tail': tail
+                })
+                relations_created += 1
+            except Exception as e:
+                errors.append(f"Relation error: {str(e)}")
+
+        return {
+            'code': 0,
+            'message': f'## ✅ L1 Markdown导入完成\n\n**节点创建**: {nodes_created} 个\n**关系创建**: {relations_created} 个',
+            'nodes': nodes_created,
+            'relations': relations_created,
+            'errors': errors[:10]
+        }
+    finally:
+        neo4j.close()
+
+
+@router.post('/import/l2/markdown')
+async def import_l2_markdown(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
+    content = await file.read()
+
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail='File too large')
+
+    try:
+        text = content.decode('utf-8')
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail='Invalid file encoding')
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail='Markdown file is empty')
+
+    from src.config import settings
+
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=500, detail='OpenAI API key not configured')
+
+    task_id = str(uuid.uuid4())
+
+    SyncProgressTracker._task_info[task_id] = {
+        'type': 'l2_markdown',
+        'total': 100,
+        'current': 0,
+        'stage': 'parsing',
+        'message': '## 📝 准备解析Markdown文档\n\n文件: **{filename}**'.format(filename=file.filename or 'unknown'),
+        'detail': None
+    }
+
+    def _do_import():
+        from src.importer.l2_importer import L2Importer
+        from src.kg.client import Neo4jClient
+        from src.utils.llm_client import LLMClient
+        from src.config import settings
+
+        neo4j = None
+        try:
+            neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+            llm = LLMClient(
+                api_key=settings.openai_api_key,
+                base_url=settings.openai_base_url,
+                model=settings.llm_model
+            )
+
+            def progress_callback(stage: str, current: int, total: int, message: str, detail: str = None):
+                SyncProgressTracker.update(task_id, stage, current, total, message, detail)
+
+            importer = L2Importer(neo4j, llm, progress_callback=progress_callback)
+            result = importer.import_markdown(text, file.filename or 'unknown')
+
+            SyncProgressTracker.complete(task_id, f'## ✅ L2 Markdown导入完成\n\n**实体创建**: {result["entities_created"]} 个\n**术语创建**: {result["terms_created"]} 个\n**关系创建**: {result["relations_created"]} 个\n\n> 📝 Markdown文档节点已创建，关联L3术语节点')
+
+        except Exception as e:
+            logger.error(f"L2 Markdown import failed: {e}")
+            SyncProgressTracker.error(task_id, str(e))
+        finally:
+            if neo4j:
+                neo4j.close()
+
+    background_tasks.add_task(_do_import)
+
+    return {
+        'code': 0,
+        'task_id': task_id,
+        'message': f'## 📥 开始L2 Markdown文档导入\n\n文件: **{file.filename or "unknown"}**\n\n> 📊 订阅进度: `/api/v1/import/progress/{task_id}`'
+    }
+
+
+@router.post('/import/l3/markdown')
+async def import_l3_markdown(file: UploadFile = File(...)):
+    content = await file.read()
+
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail='File too large')
+
+    try:
+        text = content.decode('utf-8')
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail='Invalid file encoding')
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail='Markdown file is empty')
+
+    from src.importer.entity_extractor import EntityExtractor
+    from src.utils.llm_client import LLMClient
+    from src.config import settings
+    from src.kg.client import Neo4jClient
+
+    llm = LLMClient(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        model=settings.llm_model
+    )
+    extractor = EntityExtractor(llm)
+
+    try:
+        terms = extractor.extract_terms_from_markdown(text)
+    except Exception as e:
+        logger.error(f"Term extraction from markdown failed: {e}")
+        terms = []
+
+    neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+
+    try:
+        for term in terms:
+            cypher = '''
+            CREATE (t:Term {
+                term_id: $term_id,
+                name: $name,
+                definition: $definition,
+                units: $units,
+                source_type: 'l3_markdown_import'
+            })
+            '''
+            neo4j.execute_query(cypher, {
+                'term_id': term.get('term_id', ''),
+                'name': term.get('name', ''),
+                'definition': term.get('definition', ''),
+                'units': term.get('units', '')
+            })
+
+        return {
+            'code': 0,
+            'message': f'## ✅ L3 Markdown术语导入成功\n\n**导入数量**: {len(terms)} 个术语\n\n' + '\n'.join([f'- **{t.get("name", "")}**: {t.get("definition", "")}' for t in terms[:10]])
+        }
     finally:
         neo4j.close()
 

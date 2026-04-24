@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { importApi } from '../api/client'
+import ReactMarkdown from 'react-markdown'
 
 type Tab = 'l1' | 'l2' | 'l3'
 
@@ -14,7 +15,7 @@ interface ProgressUpdate {
 
 interface ImportTask {
   taskId: string
-  type: 'l1_csv' | 'l1_txt' | 'l2'
+  type: 'l1_csv' | 'l1_txt' | 'l1_markdown' | 'l2' | 'l2_markdown'
   status: 'idle' | 'processing' | 'success' | 'error'
   progress: number
   message: string
@@ -49,7 +50,7 @@ function ImportProgressCard({ task, onClose }: { task: ImportTask; onClose: () =
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
         <span style={{ fontWeight: 'bold', color: '#1e293b' }}>
-          {task.type === 'l1_csv' ? 'CSV导入' : task.type === 'l1_txt' ? 'TXT导入' : 'L2文档导入'}
+          {task.type === 'l1_csv' ? 'CSV导入' : task.type === 'l1_txt' ? 'TXT导入' : task.type === 'l1_markdown' ? 'Markdown导入' : task.type === 'l2_markdown' ? 'L2 Markdown导入' : 'L2文档导入'}
         </span>
         <span style={{
           fontSize: '12px',
@@ -64,7 +65,9 @@ function ImportProgressCard({ task, onClose }: { task: ImportTask; onClose: () =
 
       <div style={{ marginBottom: '8px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#64748b' }}>
-          <span>{task.message || stageLabel}</span>
+          <span style={{ flex: 1 }}>
+            <ReactMarkdown>{task.message || stageLabel}</ReactMarkdown>
+          </span>
           <span>{percentage}%</span>
         </div>
         <div style={{ height: '8px', backgroundColor: '#e2e8f0', borderRadius: '4px', overflow: 'hidden', marginTop: '4px' }}>
@@ -79,7 +82,7 @@ function ImportProgressCard({ task, onClose }: { task: ImportTask; onClose: () =
 
       {task.detail && (
         <div style={{ fontSize: '12px', color: '#64748b', marginTop: '8px' }}>
-          详情: {task.detail}
+          <ReactMarkdown>{task.detail}</ReactMarkdown>
         </div>
       )}
 
@@ -139,6 +142,9 @@ export function ImportManager() {
   const csvRef = useRef<HTMLInputElement>(null)
   const txtRef = useRef<HTMLInputElement>(null)
   const pdfRef = useRef<HTMLInputElement>(null)
+  const mdRef = useRef<HTMLInputElement>(null)
+  const mdL2Ref = useRef<HTMLInputElement>(null)
+  const mdL3Ref = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const eventSources: Record<string, EventSource> = {}
@@ -195,7 +201,7 @@ export function ImportManager() {
       type,
       status: 'processing',
       progress: 0,
-      message: '开始导入...',
+      message: '## ⏳ 开始导入任务...\n\n准备中...',
       stage: 'idle'
     }
     setActiveTasks(prev => [...prev, task])
@@ -208,22 +214,22 @@ export function ImportManager() {
 
   const handleL1Manual = async () => {
     if (!l1Form.name || !l1Form.battery_model) {
-      setMessage('请填写必填字段')
+      setMessage('**⚠️ 请填写必填字段**\n\n- 组件名称\n- 电池型号')
       return
     }
 
     try {
-      await importApi.importL1Manual({
+      const res = await importApi.importL1Manual({
         name: l1Form.name,
         battery_model: l1Form.battery_model,
         tool_required: l1Form.tool_required.split(',').map(t => t.trim()).filter(Boolean),
         safety_level: l1Form.safety_level,
         precedence: l1Form.precedence.split(',').map(p => p.trim()).filter(Boolean),
       })
-      setMessage('导入成功')
+      setMessage(res.data.message || '## ✅ 导入成功\n\n组件已添加到知识图谱')
       setL1Form({ name: '', battery_model: '', tool_required: '', safety_level: 1, precedence: '' })
     } catch (error) {
-      setMessage('导入失败')
+      setMessage('## ❌ 导入失败\n\n请检查网络连接或重试')
     }
   }
 
@@ -240,9 +246,9 @@ export function ImportManager() {
         addTask(res.data.task_id, 'l1_csv')
       }
 
-      setMessage(`开始导入${res.data.total || 0}行`)
+      setMessage(res.data.message || `## 📥 开始导入CSV\n\n共 **${res.data.total || 0}** 行\n\n请查看下方进度`)
     } catch (error) {
-      setMessage('CSV导入失败')
+      setMessage('## ❌ CSV导入失败\n\n请检查文件格式或网络连接')
     }
   }
 
@@ -259,9 +265,9 @@ export function ImportManager() {
         addTask(res.data.task_id, 'l1_txt')
       }
 
-      setMessage('开始解析TXT三元组')
+      setMessage(res.data.message || '## 📥 开始解析TXT三元组\n\n请查看下方进度')
     } catch (error) {
-      setMessage('TXT导入失败')
+      setMessage('## ❌ TXT导入失败\n\n请检查网络连接或重试')
     }
   }
 
@@ -273,9 +279,23 @@ export function ImportManager() {
       const formData = new FormData()
       formData.append('file', file)
       const res = await importApi.importL1Pdf(formData)
-      setMessage(res.data.message)
+      setMessage(res.data.message || '## ✅ PDF导入完成')
     } catch (error) {
-      setMessage('PDF导入失败')
+      setMessage('## ❌ PDF导入失败\n\n请检查文件格式或网络连接')
+    }
+  }
+
+  const handleL1MarkdownUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await importApi.importL1Markdown(formData)
+      setMessage(res.data.message || '## ✅ L1 Markdown导入完成')
+    } catch (error) {
+      setMessage('## ❌ L1 Markdown导入失败\n\n请检查网络连接或重试')
     }
   }
 
@@ -295,9 +315,42 @@ export function ImportManager() {
         addTask(res.data.task_id, 'l2')
       }
 
-      setMessage('开始L2文档导入')
+      setMessage(res.data.message || '## 📥 开始L2文档导入\n\n请查看下方进度')
     } catch (error) {
-      setMessage('L2导入失败')
+      setMessage('## ❌ L2导入失败\n\n请检查网络连接或重试')
+    }
+  }
+
+  const handleL2MarkdownUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await importApi.importL2Markdown(formData)
+
+      if (res.data.task_id) {
+        addTask(res.data.task_id, 'l2_markdown')
+      }
+
+      setMessage(res.data.message || '## 📥 开始L2 Markdown文档导入\n\n请查看下方进度')
+    } catch (error) {
+      setMessage('## ❌ L2 Markdown导入失败\n\n请检查网络连接或重试')
+    }
+  }
+
+  const handleL3MarkdownUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await importApi.importL3Markdown(formData)
+      setMessage(res.data.message || '## ✅ L3 Markdown术语导入成功')
+    } catch (error) {
+      setMessage('## ❌ L3 Markdown导入失败\n\n请检查网络连接或重试')
     }
   }
 
@@ -309,7 +362,7 @@ export function ImportManager() {
 
       {message && (
         <div className="card" style={{ marginBottom: '20px', backgroundColor: message.includes('成功') || message.includes('开始') ? '#d4edda' : '#f8d7da' }}>
-          {message}
+          <ReactMarkdown>{message}</ReactMarkdown>
         </div>
       )}
 
@@ -381,6 +434,16 @@ export function ImportManager() {
 
           <div style={{ borderTop: '1px solid #eee', paddingTop: '20px' }}>
             <h3 style={{ marginBottom: '10px' }}>批量导入</h3>
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+              <input type="file" ref={mdRef} accept=".md,.markdown" onChange={handleL1MarkdownUpload} style={{ display: 'none' }} />
+              <button
+                onClick={() => mdRef.current?.click()}
+                style={{ padding: '10px 20px', backgroundColor: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+              >
+                Markdown导入
+              </button>
+            </div>
+
             <div style={{ display: 'flex', gap: '10px' }}>
               <input type="file" ref={csvRef} accept=".csv" onChange={handleCsvUpload} style={{ display: 'none' }} />
               <button
@@ -414,30 +477,135 @@ export function ImportManager() {
         <div className="card">
           <h2 style={{ marginBottom: '20px' }}>L2文档导入</h2>
           <p style={{ marginBottom: '15px', color: '#666' }}>
-            上传PDF文档，系统将自动解析并提取其中的组件和术语信息存入L2层。
+            上传PDF或Markdown文档，系统将自动解析并提取其中的组件和术语信息存入L2层。
           </p>
-          <input
-            type="file"
-            accept=".pdf"
-            onChange={handleL2Upload}
-            style={{ display: 'none' }}
-            id="l2-upload"
-          />
-          <button
-            onClick={() => document.getElementById('l2-upload')?.click()}
-            style={{ padding: '15px 30px', backgroundColor: '#f97316', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-          >
-            选择PDF文件
-          </button>
+          <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+            <div>
+              <input
+                type="file"
+                accept=".pdf"
+                onChange={handleL2Upload}
+                style={{ display: 'none' }}
+                id="l2-upload"
+              />
+              <button
+                onClick={() => document.getElementById('l2-upload')?.click()}
+                style={{ padding: '15px 30px', backgroundColor: '#f97316', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+              >
+                选择PDF文件
+              </button>
+            </div>
+            <div>
+              <input
+                type="file"
+                ref={mdL2Ref}
+                accept=".md,.markdown"
+                onChange={handleL2MarkdownUpload}
+                style={{ display: 'none' }}
+                id="l2-markdown-upload"
+              />
+              <button
+                onClick={() => mdL2Ref.current?.click()}
+                style={{ padding: '15px 30px', backgroundColor: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+              >
+                选择Markdown文件
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
       {activeTab === 'l3' && (
         <div className="card">
           <h2 style={{ marginBottom: '20px' }}>L3术语导入</h2>
-          <p style={{ color: '#666' }}>
-            L3术语可以从L2文档自动提取，也支持手动添加。
+          <p style={{ marginBottom: '15px', color: '#666' }}>
+            L3术语可以从L2文档自动提取，也支持Markdown文件导入或手动添加。
           </p>
+
+          <div style={{ marginBottom: '20px' }}>
+            <h3 style={{ marginBottom: '10px' }}>Markdown文件导入</h3>
+            <input
+              type="file"
+              ref={mdL3Ref}
+              accept=".md,.markdown"
+              onChange={handleL3MarkdownUpload}
+              style={{ display: 'none' }}
+              id="l3-markdown-upload"
+            />
+            <button
+              onClick={() => mdL3Ref.current?.click()}
+              style={{ padding: '15px 30px', backgroundColor: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+            >
+              选择Markdown文件
+            </button>
+          </div>
+
+          <div style={{ borderTop: '1px solid #eee', paddingTop: '20px' }}>
+            <h3 style={{ marginBottom: '10px' }}>手动添加术语</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '15px' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '5px' }}>术语ID *</label>
+                <input
+                  type="text"
+                  id="term-id"
+                  style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '5px' }}>术语名称 *</label>
+                <input
+                  type="text"
+                  id="term-name"
+                  style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }}
+                />
+              </div>
+              <div style={{ gridColumn: 'span 2' }}>
+                <label style={{ display: 'block', marginBottom: '5px' }}>定义 *</label>
+                <textarea
+                  id="term-definition"
+                  rows={3}
+                  style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd', resize: 'vertical' }}
+                />
+              </div>
+            </div>
+            <button
+              onClick={async () => {
+                const termIdInput = document.getElementById('term-id') as HTMLInputElement
+                const termNameInput = document.getElementById('term-name') as HTMLInputElement
+                const termDefInput = document.getElementById('term-definition') as HTMLTextAreaElement
+
+                const term_id = termIdInput?.value?.trim()
+                const name = termNameInput?.value?.trim()
+                const definition = termDefInput?.value?.trim()
+
+                if (!term_id || !name || !definition) {
+                  setMessage('**⚠️ 请填写所有必填字段**\n\n- 术语ID\n- 术语名称\n- 定义')
+                  return
+                }
+
+                try {
+                  const res = await importApi.importL3({
+                    terms: [{
+                      term_id,
+                      name,
+                      definition,
+                      units: ''
+                    }]
+                  })
+                  setMessage(res.data.message || '## ✅ 术语导入成功')
+
+                  termIdInput.value = ''
+                  termNameInput.value = ''
+                  termDefInput.value = ''
+                } catch (error) {
+                  setMessage('## ❌ 术语导入失败\n\n请检查网络连接或重试')
+                }
+              }}
+              style={{ marginTop: '15px', padding: '10px 20px', backgroundColor: '#22c55e', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+            >
+              添加术语
+            </button>
+          </div>
         </div>
       )}
     </div>

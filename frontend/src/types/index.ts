@@ -100,6 +100,7 @@ export interface L1ComponentInput {
 export interface L3TermInput {
   terms: Array<{
     term_id: string
+    name: string
     definition: string
     units: string
   }>
