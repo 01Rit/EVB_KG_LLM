@@ -185,16 +185,18 @@ class Neo4jClient:
                     })
 
             for rel in record.get('rels', []):
-                start_id = rel.start_node.get('id') or rel.start_node.get('name') if hasattr(rel.start_node, 'get') else None
-                rel_id = f"{start_id}-{rel.type}"
-                if rel_id not in seen_rels:
-                    seen_rels.add(rel_id)
-                    edges.append({
-                        'start': start_id,
-                        'end': rel.end_node.get('id') or rel.end_node.get('name') if hasattr(rel.end_node, 'get') else None,
-                        'type': rel.type,
-                        'properties': dict(rel) if hasattr(rel, 'properties') else dict(rel)
-                    })
+                if isinstance(rel, tuple) and len(rel) >= 2:
+                    start_node, relationship, end_node = rel[0], rel[1], rel[2]
+                    start_id = start_node.get('id') or start_node.get('name') if hasattr(start_node, 'get') else None
+                    rel_id = f"{start_id}-{relationship}"
+                    if rel_id not in seen_rels:
+                        seen_rels.add(rel_id)
+                        edges.append({
+                            'start': start_id,
+                            'end': end_node.get('id') or end_node.get('name') if hasattr(end_node, 'get') else None,
+                            'type': relationship if isinstance(relationship, str) else relationship.type,
+                            'properties': dict(relationship) if hasattr(relationship, 'properties') else {}
+                        })
 
         return {'nodes': nodes, 'edges': edges}
     
