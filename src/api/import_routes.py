@@ -578,23 +578,29 @@ async def import_l2(file: UploadFile = File(...), background_tasks: BackgroundTa
 
     def _do_import():
         from src.importer.l2_importer import L2Importer
-        from src.kg.client import Neo4jClient
+        from src.kg.client import Neo4jClient, MilvusClient
         from src.utils.llm_client import LLMClient
+        from src.cross_layer.linker import CrossLayerLinker
         from src.config import settings
 
         neo4j = None
         try:
             neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+            try:
+                milvus = MilvusClient(settings.milvus_host, settings.milvus_port) if settings.milvus_host else None
+            except Exception:
+                milvus = None
             llm = LLMClient(
                 api_key=settings.openai_api_key,
                 base_url=settings.openai_base_url,
                 model=settings.llm_model
             )
+            linker = CrossLayerLinker(neo4j, milvus, llm)
 
             def progress_callback(stage: str, current: int, total: int, message: str, detail: str = None):
                 SyncProgressTracker.update(task_id, stage, current, total, message, detail)
 
-            importer = L2Importer(neo4j, llm, progress_callback=progress_callback)
+            importer = L2Importer(neo4j, llm, progress_callback=progress_callback, linker=linker)
             result = importer.import_pdf(full_text, file.filename or 'unknown')
 
             SyncProgressTracker.complete(task_id, f'## ✅ L2导入完成\n\n**实体创建**: {result["entities_created"]} 个\n**术语创建**: {result["terms_created"]} 个\n**关系创建**: {result["relations_created"]} 个\n\n> 📝 L2文档节点已创建，关联L3术语节点')
@@ -773,23 +779,29 @@ async def import_l2_markdown(file: UploadFile = File(...), background_tasks: Bac
 
     def _do_import():
         from src.importer.l2_importer import L2Importer
-        from src.kg.client import Neo4jClient
+        from src.kg.client import Neo4jClient, MilvusClient
         from src.utils.llm_client import LLMClient
+        from src.cross_layer.linker import CrossLayerLinker
         from src.config import settings
 
         neo4j = None
         try:
             neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+            try:
+                milvus = MilvusClient(settings.milvus_host, settings.milvus_port) if settings.milvus_host else None
+            except Exception:
+                milvus = None
             llm = LLMClient(
                 api_key=settings.openai_api_key,
                 base_url=settings.openai_base_url,
                 model=settings.llm_model
             )
+            linker = CrossLayerLinker(neo4j, milvus, llm)
 
             def progress_callback(stage: str, current: int, total: int, message: str, detail: str = None):
                 SyncProgressTracker.update(task_id, stage, current, total, message, detail)
 
-            importer = L2Importer(neo4j, llm, progress_callback=progress_callback)
+            importer = L2Importer(neo4j, llm, progress_callback=progress_callback, linker=linker)
             result = importer.import_markdown(text, file.filename or 'unknown')
 
             SyncProgressTracker.complete(task_id, f'## ✅ L2 Markdown导入完成\n\n**实体创建**: {result["entities_created"]} 个\n**术语创建**: {result["terms_created"]} 个\n**关系创建**: {result["relations_created"]} 个\n\n> 📝 Markdown文档节点已创建，关联L3术语节点')

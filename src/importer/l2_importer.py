@@ -1,6 +1,7 @@
 from src.kg.client import Neo4jClient
 from src.importer.entity_extractor import EntityExtractor
 from src.utils.llm_client import LLMClient
+from src.cross_layer.linker import CrossLayerLinker
 from typing import Dict, Any, List, Optional, Callable
 import uuid
 import logging
@@ -12,10 +13,12 @@ MAX_CONTENT_LENGTH = 50000
 
 class L2Importer:
     def __init__(self, neo4j_client: Neo4jClient, llm_client: LLMClient,
-                 progress_callback: Optional[Callable] = None):
+                 progress_callback: Optional[Callable] = None,
+                 linker: Optional[CrossLayerLinker] = None):
         self.neo4j = neo4j_client
         self.extractor = EntityExtractor(llm_client)
         self.progress_callback = progress_callback
+        self.linker = linker
 
     def _report_progress(self, stage: str, current: int, total: int,
                          message: str, detail: str = None) -> None:
@@ -164,8 +167,12 @@ class L2Importer:
         return result[0].get('cnt', 0) if result else 0
 
     def _create_cross_layer_relations(self, doc_id: str, entities: List[Dict], terms: List[Dict]) -> int:
-        """Create DEFINED_AS for definition-type entities, USES_TOOL for tool-using entities."""
+        """Create cross-layer relations using both rule-based and CrossLayerLinker approaches."""
         relations = 0
+
+        if self.linker:
+            relations += self._create_reference_of_via_linker(doc_id, entities)
+            relations += self._create_definition_of_via_linker(doc_id, entities, terms)
 
         definition_entity_names = {e.get('name') for e in entities if e.get('entity_type') == 'definition'}
         definition_terms = [t for t in terms if t.get('name') in definition_entity_names]
@@ -203,4 +210,70 @@ class L2Importer:
             result = self.neo4j.execute_query(cypher, {'doc_id': doc_id})
             relations += result[0].get('cnt', 0) if result else 0
 
+        return relations
+
+    def _create_reference_of_via_linker(self, doc_id: str, entities: List[Dict]) -> int:
+        """Create REFERENCE_OF (L1→L2) relations using CrossLayerLinker."""
+        if not self.linker:
+            return 0
+        relations = 0
+        for entity in entities:
+            l1_components = self.neo4j.search_components(entity.get('name', ''), top_k=3)
+            for comp in l1_components:
+                candidates = [{
+                    'source_id': comp.get('id', ''),
+                    'source_name': comp.get('name', ''),
+                    'source_type': 'Component',
+                    'target_id': entity.get('id', ''),
+                    'target_name': entity.get('name', ''),
+                    'target_type': entity.get('entity_type', 'Entity'),
+                    'score': 0.85,
+                    'layer': 'L2',
+                    'relation_type': 'REFERENCE_OF'
+                }]
+                filtered = self.linker._step2_hard_rule_filter(
+                    candidates, 'Component', 'REFERENCE_OF'
+                )
+                if filtered and self.linker.llm_judge:
+                    judged = self.linker._step3_llm_judge(filtered, '', 'REFERENCE_OF')
+                    written = self.linker.write_relations(judged, 'REFERENCE_OF')
+                    relations += written
+                elif filtered:
+                    written = self.linker.write_relations(filtered, 'REFERENCE_OF')
+                    relations += written
+        logger.info(f"Created {relations} REFERENCE_OF relations via linker")
+        return relations
+
+    def _create_definition_of_via_linker(self, doc_id: str, entities: List[Dict], terms: List[Dict]) -> int:
+        """Create DEFINITION_OF (L2→L3) relations using CrossLayerLinker."""
+        if not self.linker:
+            return 0
+        relations = 0
+        term_dict = {t.get('name', ''): t for t in terms}
+        for entity in entities:
+            entity_name = entity.get('name', '')
+            if entity_name in term_dict:
+                term = term_dict[entity_name]
+                candidates = [{
+                    'source_id': entity.get('id', ''),
+                    'source_name': entity_name,
+                    'source_type': entity.get('entity_type', 'Entity'),
+                    'target_id': term.get('id', ''),
+                    'target_name': term.get('name', ''),
+                    'target_type': 'Term',
+                    'score': 0.85,
+                    'layer': 'L3',
+                    'relation_type': 'DEFINITION_OF'
+                }]
+                filtered = self.linker._step2_hard_rule_filter(
+                    candidates, entity.get('entity_type', 'Entity'), 'DEFINITION_OF'
+                )
+                if filtered and self.linker.llm_judge:
+                    judged = self.linker._step3_llm_judge(filtered, '', 'DEFINITION_OF')
+                    written = self.linker.write_relations(judged, 'DEFINITION_OF')
+                    relations += written
+                elif filtered:
+                    written = self.linker.write_relations(filtered, 'DEFINITION_OF')
+                    relations += written
+        logger.info(f"Created {relations} DEFINITION_OF relations via linker")
         return relations
