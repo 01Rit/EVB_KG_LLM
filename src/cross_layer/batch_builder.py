@@ -190,7 +190,7 @@ class CrossLayerBatchBuilder:
 
                 if source:
                     matches.append({
-                        'source_id': l1['id'],
+                        'source_name': l1['name'],
                         'target_id': l2['id'],
                         'confidence': 0.9,
                         'source': source,
@@ -201,7 +201,7 @@ class CrossLayerBatchBuilder:
 
             for m in matches:
                 cypher = '''
-                MATCH (a:Component {id: $source_id})
+                MATCH (a:Component {name: $source_name})
                 MATCH (b:L2_Entity {id: $target_id})
                 MERGE (a)-[r:REFERENCE_OF]->(b)
                 ON CREATE SET r.confidence = $confidence, r.run_id = $run_id, r.source = $source
@@ -209,7 +209,7 @@ class CrossLayerBatchBuilder:
                 '''
                 try:
                     self.neo4j.execute_query(cypher, {
-                        'source_id': m['source_id'],
+                        'source_name': m['source_name'],
                         'target_id': m['target_id'],
                         'confidence': m['confidence'],
                         'run_id': self.run_id,
