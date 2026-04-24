@@ -59,4 +59,56 @@ class CrossLayerRetriever:
                     relations_written += self.linker.write_relations(defs, 'DEFINITION_OF')
         
         logger.info(f"Cross-layer relations written: {relations_written}")
-        return EvidenceGraph(nodes=[], edges=[])
+
+        cypher = '''
+        MATCH (s)-[r:REFERENCE_OF|DEFINITION_OF]->(t)
+        WHERE s.battery_model = $model OR s.battery_model IS NULL
+        RETURN s.id as source_id, s.name as source_name, s.battery_model as source_context,
+               type(r) as relation_type, t.id as target_id, t.name as target_name,
+               t.entity_type as target_type, t.source_evidence as target_evidence
+        LIMIT 200
+        '''
+        results = self.linker.neo4j.execute_query(cypher, {'model': battery_model})
+
+        nodes_map = {}
+        edges = []
+        for row in results:
+            source_id = row.get('source_id', '')
+            source_name = row.get('source_name', '')
+            source_context = row.get('source_context', '')
+            target_id = row.get('target_id', '')
+            target_name = row.get('target_name', '')
+            target_type = row.get('target_type', 'Entity')
+            target_evidence = row.get('target_evidence', '')
+            relation_type = row.get('relation_type', '')
+
+            if source_id and source_id not in nodes_map:
+                nodes_map[source_id] = EvidenceNode(
+                    node_type='Component',
+                    id=source_id,
+                    name=source_name,
+                    properties={'battery_model': source_context},
+                    relationships=[relation_type],
+                    text=f"{source_name} (Component)",
+                    evidence_ids=[],
+                )
+
+            if target_id and target_id not in nodes_map:
+                nodes_map[target_id] = EvidenceNode(
+                    node_type=target_type,
+                    id=target_id,
+                    name=target_name,
+                    properties={'source_evidence': target_evidence},
+                    relationships=[],
+                    text=f"{target_name} ({target_type})",
+                    evidence_ids=[],
+                )
+
+            if source_id and target_id:
+                edges.append({
+                    'source': source_id,
+                    'target': target_id,
+                    'relation_type': relation_type,
+                })
+
+        return EvidenceGraph(nodes=list(nodes_map.values()), edges=edges)
