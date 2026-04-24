@@ -162,7 +162,7 @@ class Neo4jClient:
 
         cypher = f'''
         MATCH path = (c:Component|L2_Entity)-[r*1..{depth}]-(related)
-        WHERE c.id IN $node_ids
+        WHERE COALESCE(c.id, c.name) IN $node_ids
         RETURN nodes(path) as nodes, relationships(path) as rels
         '''
 
