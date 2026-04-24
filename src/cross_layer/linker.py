@@ -34,7 +34,7 @@ class CrossLayerLinker:
         relation_type: str
     ) -> List[Dict]:
         candidates = self._step1_embed_recall(
-            source_name, source_type, source_context, target_layer, relation_type
+            source_node_id, source_name, source_type, source_context, target_layer, relation_type
         )
         
         candidates = self._step2_hard_rule_filter(
@@ -51,6 +51,7 @@ class CrossLayerLinker:
 
     def _step1_embed_recall(
         self,
+        source_node_id: str,
         source_name: str,
         source_type: str,
         source_context: str,
@@ -64,11 +65,11 @@ class CrossLayerLinker:
             target_relation=relation_type,
             top_k=30
         )
-        
+
         for c in candidates:
-            c["source_id"] = source_name
+            c["source_id"] = source_node_id
             c["relation_type"] = relation_type
-        
+
         return candidates
 
     def _step2_hard_rule_filter(

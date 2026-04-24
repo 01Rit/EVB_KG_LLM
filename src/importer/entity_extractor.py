@@ -98,7 +98,7 @@ class EntityExtractor:
         Extract entities with type classification and source evidence.
         Returns: {entities: [...], terms: [...]}
         """
-        text = text[:4000]
+        text = text[:3500]
 
         battery_model = self._detect_battery_model(text, filename)
         logger.info(f"Detected battery model: {battery_model}")
@@ -117,26 +117,10 @@ class EntityExtractor:
 6. 识别材料/属性（material）：阻燃材料、铝合金外壳、冷却液类型等
 7. 识别定义（definition）：预紧力、力矩标准、拆卸顺序规则等
 
-返回JSON：
-{{
-  "entities": [
-    {{
-      "name": "实体名称",
-      "entity_type": "component|tool|action|parameter|safety|material|definition",
-      "source_evidence": "原文摘录",
-      "battery_model": "{battery_model or 'unknown'}"
-    }}
-  ],
-  "terms": [
-    {{
-      "term_id": "术语ID",
-      "name": "术语名称",
-      "definition": "术语定义"
-    }}
-  ]
-}}
+重要：只返回有效的JSON对象，不要返回任何其他文字。JSON格式：
+{{"entities":[{{"name":"名称","entity_type":"类型","source_evidence":"原文","battery_model":"型号"}}],"terms":[{{"term_id":"ID","name":"名称","definition":"定义"}}]}}
 
-  只返回JSON对象：'''
+只返回JSON：'''
 
         try:
             result = self.llm.generate(prompt)
@@ -148,6 +132,38 @@ class EntityExtractor:
         except Exception as e:
             logger.error(f"Entity type extraction failed: {e}")
             return {'entities': [], 'terms': []}
+
+    def extract_terms_from_markdown(self, text: str, max_items: int = 50) -> List[Dict[str, Any]]:
+        text = text[:4000]
+
+        prompt = f'''从以下Markdown文档中提取术语定义。
+
+文档内容：
+{text}
+
+提取要求：
+1. 识别所有专业术语及其定义
+2. 提取技术参数和测量单位
+3. 提取安全规范相关术语
+
+返回JSON数组格式，每个元素包含:
+{{
+  "term_id": "术语ID（可用序号）",
+  "name": "术语名称",
+  "definition": "术语定义",
+  "units": "单位（如果有）"
+}}
+
+返回JSON数组：'''
+
+        try:
+            result = self.llm.generate(prompt)
+            terms = self._parse_json_array(result)
+            logger.info(f"Extracted {len(terms)} terms from markdown")
+            return terms[:max_items]
+        except Exception as e:
+            logger.error(f"Term extraction from markdown failed: {e}")
+            return []
 
     def _parse_json_object(self, response: str) -> Dict[str, Any]:
         """Parse a JSON object from LLM response."""

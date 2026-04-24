@@ -63,11 +63,23 @@ export const importApi = {
     api.post('/import/l1/pdf', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
+  importL1Markdown: (formData: FormData) =>
+    api.post('/import/l1/markdown', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
   importL2: (formData: FormData) =>
     api.post('/import/l2', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
+  importL2Markdown: (formData: FormData) =>
+    api.post('/import/l2/markdown', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
   importL3: (data: L3TermInput) => api.post('/import/l3', data),
+  importL3Markdown: (formData: FormData) =>
+    api.post('/import/l3/markdown', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
   getStatus: () => api.get('/import/status'),
 }
 

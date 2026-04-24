@@ -23,28 +23,28 @@ class L2Importer:
             self.progress_callback(stage, current, total, message, detail)
 
     def import_pdf(self, full_text: str, filename: str) -> Dict[str, Any]:
-        self._report_progress('parsing', 5, 100, '开始解析文档...')
+        self._report_progress('parsing', 5, 100, '## 📄 开始解析PDF文档...')
 
         extraction = self.extractor.extract_entities_with_types(full_text, filename=filename)
         entities = extraction.get('entities', [])
         terms = extraction.get('terms', [])
 
-        self._report_progress('extracting', 15, 100, f'提取到{len(entities)}个实体, {len(terms)}个术语')
+        self._report_progress('extracting', 15, 100, f'## 🔍 提取完成\n\n**实体**: {len(entities)} 个\n**术语**: {len(terms)} 个')
 
         doc_id = str(uuid.uuid4())
-        self._create_l2_document(doc_id, filename, full_text)
-        self._report_progress('creating_nodes', 25, 100, '创建L2文档节点')
+        self._create_l2_document(doc_id, filename, full_text, 'pdf')
+        self._report_progress('creating_nodes', 25, 100, '## 🗄️ 创建L2文档节点...')
 
         entities_created = self._create_l2_entities(doc_id, entities)
-        self._report_progress('creating_nodes', 45, 100, f'创建L2实体节点: {entities_created}个')
+        self._report_progress('creating_nodes', 45, 100, f'## ✅ 创建L2实体节点\n\n**共创建**: {entities_created} 个')
 
         terms_created = self._create_l3_terms(doc_id, terms)
-        self._report_progress('creating_nodes', 65, 100, f'创建L3术语节点: {terms_created}个')
+        self._report_progress('creating_nodes', 65, 100, f'## ✅ 创建L3术语节点\n\n**共创建**: {terms_created} 个')
 
         relations = self._create_cross_layer_relations(doc_id, entities, terms)
-        self._report_progress('creating_relations', 85, 100, f'创建跨层关系: {relations}个')
+        self._report_progress('creating_relations', 85, 100, f'## 🔗 创建跨层关系\n\n**共创建**: {relations} 个')
 
-        self._report_progress('completing', 100, 100, '导入完成')
+        self._report_progress('completing', 100, 100, '## ✅ L2 PDF导入流程完成')
 
         return {
             'doc_id': doc_id,
@@ -54,7 +54,39 @@ class L2Importer:
             'errors': []
         }
 
-    def _create_l2_document(self, doc_id: str, filename: str, full_text: str) -> None:
+    def import_markdown(self, full_text: str, filename: str) -> Dict[str, Any]:
+        self._report_progress('parsing', 5, 100, '## 📝 开始解析Markdown文档...')
+
+        extraction = self.extractor.extract_entities_with_types(full_text, filename=filename)
+        entities = extraction.get('entities', [])
+        terms = extraction.get('terms', [])
+
+        self._report_progress('extracting', 15, 100, f'## 🔍 提取完成\n\n**实体**: {len(entities)} 个\n**术语**: {len(terms)} 个')
+
+        doc_id = str(uuid.uuid4())
+        self._create_l2_document(doc_id, filename, full_text, 'markdown')
+        self._report_progress('creating_nodes', 25, 100, '## 🗄️ 创建L2文档节点...')
+
+        entities_created = self._create_l2_entities(doc_id, entities)
+        self._report_progress('creating_nodes', 45, 100, f'## ✅ 创建L2实体节点\n\n**共创建**: {entities_created} 个')
+
+        terms_created = self._create_l3_terms(doc_id, terms)
+        self._report_progress('creating_nodes', 65, 100, f'## ✅ 创建L3术语节点\n\n**共创建**: {terms_created} 个')
+
+        relations = self._create_cross_layer_relations(doc_id, entities, terms)
+        self._report_progress('creating_relations', 85, 100, f'## 🔗 创建跨层关系\n\n**共创建**: {relations} 个')
+
+        self._report_progress('completing', 100, 100, '## ✅ L2 Markdown导入流程完成')
+
+        return {
+            'doc_id': doc_id,
+            'entities_created': entities_created,
+            'terms_created': terms_created,
+            'relations_created': relations,
+            'errors': []
+        }
+
+    def _create_l2_document(self, doc_id: str, filename: str, full_text: str, source_type: str = 'pdf') -> None:
         if len(full_text) > MAX_CONTENT_LENGTH:
             logger.warning(f"Content truncated from {len(full_text)} to {MAX_CONTENT_LENGTH} characters for doc_id {doc_id}")
         cypher = '''
@@ -63,6 +95,7 @@ class L2Importer:
             name: $name,
             source: $source,
             content: $content,
+            source_type: $source_type,
             node_type: 'L2_Document'
         })
         '''
@@ -70,7 +103,8 @@ class L2Importer:
             'doc_id': doc_id,
             'name': filename or 'unknown',
             'source': filename or 'unknown',
-            'content': full_text[:MAX_CONTENT_LENGTH]
+            'content': full_text[:MAX_CONTENT_LENGTH],
+            'source_type': source_type
         })
 
     def _create_l2_entities(self, doc_id: str, entities: List[Dict]) -> int:
