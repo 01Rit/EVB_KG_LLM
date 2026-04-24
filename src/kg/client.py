@@ -167,33 +167,35 @@ class Neo4jClient:
         '''
 
         results = self.execute_query(cypher, {'node_ids': node_ids})
-        
+
         nodes = []
         edges = []
         seen_nodes = set()
         seen_rels = set()
-        
+
         for record in results:
             for node in record.get('nodes', []):
-                if node.element_id not in seen_nodes:
-                    seen_nodes.add(node.element_id)
+                node_id = node.get('id') or node.get('name')
+                if node_id and node_id not in seen_nodes:
+                    seen_nodes.add(node_id)
                     nodes.append({
-                        'id': node.get('id'),
-                        'labels': list(node.labels),
-                        'properties': dict(node)
+                        'id': node_id,
+                        'labels': list(node.labels) if hasattr(node, 'labels') else ['Unknown'],
+                        'properties': dict(node) if hasattr(node, 'properties') else dict(node)
                     })
-            
+
             for rel in record.get('rels', []):
-                rel_key = f'{rel.start_node.element_id}-{rel.element_id}'
-                if rel_key not in seen_rels:
-                    seen_rels.add(rel_key)
+                start_id = rel.start_node.get('id') or rel.start_node.get('name') if hasattr(rel.start_node, 'get') else None
+                rel_id = f"{start_id}-{rel.type}"
+                if rel_id not in seen_rels:
+                    seen_rels.add(rel_id)
                     edges.append({
-                        'start': rel.start_node.get('id'),
-                        'end': rel.end_node.get('id'),
+                        'start': start_id,
+                        'end': rel.end_node.get('id') or rel.end_node.get('name') if hasattr(rel.end_node, 'get') else None,
                         'type': rel.type,
-                        'properties': dict(rel)
+                        'properties': dict(rel) if hasattr(rel, 'properties') else dict(rel)
                     })
-        
+
         return {'nodes': nodes, 'edges': edges}
     
     def get_battery_model_components(self, battery_model: str) -> list[dict]:
