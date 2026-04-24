@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Set
 from src.cross_layer.linker import CrossLayerLinker
 from src.kg.client import Neo4jClient, MilvusClient
 from src.utils.llm_client import LLMClient
@@ -17,9 +17,49 @@ class CrossLayerRetriever:
     ):
         self.linker = CrossLayerLinker(neo4j_client, milvus_client, llm_client)
 
-    def should_trigger(self, graph: EvidenceGraph) -> bool:
-        """Placeholder - always returns True for now. Task 3 will implement actual logic."""
-        return True
+    def should_trigger(self, graph: EvidenceGraph, intents: Optional[List[str]] = None) -> bool:
+        """
+        Returns True if ANY of three conditions is met:
+        1. Minimum evidence: fewer than 5 nodes
+        2. Coverage: key concepts from intents are missing from graph (< 30%)
+        3. Structure completeness: graph has few edges (sparse, < 50% edge-to-node ratio)
+        """
+        if len(graph.nodes) < 5:
+            return True
+
+        if intents:
+            key_terms = self._extract_key_terms(intents)
+            coverage = self._calculate_coverage(key_terms, graph)
+            if coverage < 0.3:
+                return True
+
+        if len(graph.edges) < len(graph.nodes) * 0.5:
+            return True
+
+        return False
+
+    def _extract_key_terms(self, intents: List[str]) -> Set[str]:
+        """Extract key technical terms from intents."""
+        stop_words = {'拆卸', '拆解', '如何', '怎么', '什么', '请', '给', '的', '是', '在', '了', '和', '与'}
+        terms = set()
+        for intent in intents:
+            words = intent.replace('拆卸', '').replace('拆解', '').split()
+            for w in words:
+                if w and w not in stop_words and len(w) > 1:
+                    terms.add(w)
+        return terms
+
+    def _calculate_coverage(self, key_terms: Set[str], graph: EvidenceGraph) -> float:
+        """Calculate what fraction of key terms appear in graph node names/texts."""
+        if not key_terms:
+            return 1.0
+        covered = 0
+        for term in key_terms:
+            for node in graph.nodes:
+                if term in node.name or term in node.text:
+                    covered += 1
+                    break
+        return covered / len(key_terms)
 
     def retrieve_cross_layer(
         self,
