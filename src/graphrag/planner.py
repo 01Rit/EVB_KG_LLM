@@ -17,11 +17,17 @@ logger = logging.getLogger(__name__)
 
 class Planner:
     def __init__(self, llm_client: LLMClient, retriever: MultiPathRetriever, neo4j_client=None,
-                 use_constraint_retriever: bool = False):
+                 milvus_client=None, use_constraint_retriever: bool = False):
         self.rewriter = QueryRewriter(llm_client)
         self.ranker = EvidenceRanker()
         self.generator = PlanGenerator(llm_client)
         self._neo4j_client = neo4j_client
+
+        if neo4j_client:
+            from src.graphrag.cross_layer_retriever import CrossLayerRetriever
+            self.cross_layer_retriever = CrossLayerRetriever(neo4j_client, milvus_client, llm_client)
+        else:
+            self.cross_layer_retriever = None
 
         if use_constraint_retriever and neo4j_client:
             from src.graphrag.constraint_engine import ConstraintEngine
