@@ -174,11 +174,15 @@ class L2Importer:
         return result[0].get('cnt', 0) if result else 0
 
     def _create_cross_layer_relations(self, doc_id: str, entities: List[Dict], terms: List[Dict]) -> int:
-        """Create cross-layer relations using both rule-based and CrossLayerLinker approaches."""
+        """Create cross-layer relations.
+
+        NOTE: REFERENCE_OF (L1→L2) is NOT created here - it should be created
+        during disassembly planning when actual component knowledge is queried.
+        DEFINITION_OF (L2→L3) is created here based on name matching.
+        """
         relations = 0
 
         if self.linker:
-            relations += self._create_reference_of_via_linker(doc_id, entities)
             relations += self._create_definition_of_via_linker(doc_id, entities, terms)
 
         definition_entity_names = {e.get('name') for e in entities if e.get('entity_type') == 'definition'}
