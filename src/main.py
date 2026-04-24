@@ -10,6 +10,7 @@ from src.api.query_routes import router as query_router
 from src.api.config_routes import router as config_router
 from src.api.import_routes import router as import_router
 from src.api.progress_routes import router as progress_router
+from src.api.cross_layer_routes import router as cross_layer_router
 from src.logs import logger
 import sys
 import os
@@ -35,6 +36,7 @@ app.include_router(query_router, prefix='/api/v1')
 app.include_router(config_router, prefix='/api/v1')
 app.include_router(import_router, prefix='/api/v1')
 app.include_router(progress_router)
+app.include_router(cross_layer_router)
 
 
 @app.on_event('shutdown')
