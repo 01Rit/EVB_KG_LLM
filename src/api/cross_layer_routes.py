@@ -4,6 +4,7 @@ from typing import List, Optional
 from src.kg.client import Neo4jClient, MilvusClient
 from src.utils.llm_client import LLMClient
 from src.graphrag.cross_layer_retriever import CrossLayerRetriever
+from src.cross_layer.batch_builder import CrossLayerBatchBuilder
 from src.config import settings
 import logging
 
@@ -40,13 +41,6 @@ class CrossLayerTriggerResponse(BaseModel):
 
 @router.post("/api/v1/cross-layer/trigger", response_model=CrossLayerTriggerResponse)
 async def trigger_cross_layer(request: CrossLayerTriggerRequest):
-    """
-    Manually trigger cross-layer relation building.
-    
-    - intents: List of search intents to find L1 components
-    - relation_types: Which relation types to build (REFERENCE_OF, DEFINITION_OF)
-    - battery_model: Optional filter for specific battery model
-    """
     try:
         graph = cross_layer_retriever.retrieve_cross_layer(
             battery_model=request.battery_model,
@@ -62,4 +56,28 @@ async def trigger_cross_layer(request: CrossLayerTriggerRequest):
         )
     except Exception as e:
         logger.error(f"Cross-layer trigger failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/v1/cross-layer/build-all")
+async def build_cross_layer_all():
+    """
+    Batch build all cross-layer relations (full rebuild).
+
+    Layer 1: REFERENCE_OF (L1→L2) - deterministic, K=5 per node
+    Layer 2: DEFINITION_OF (L2→L3) - weak semantic, K=3 + threshold
+
+    Returns integrity check results including orphan detection.
+    """
+    try:
+        builder = CrossLayerBatchBuilder(neo4j_client, milvus_client, llm_client)
+        result = builder.build_all()
+
+        return {
+            'code': 0,
+            'message': 'Cross-layer build completed',
+            'data': result,
+        }
+    except Exception as e:
+        logger.error(f"Cross-layer build-all failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
