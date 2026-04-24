@@ -101,3 +101,36 @@ class TestCrossLayerRules:
         assert ("Component", "Component") in RELATION_TYPE_MAPPING[REFERENCE_OF]["allowed_pairs"]
         assert RELATION_TYPE_MAPPING[CONSTRAINED_BY]["source_layer"] == "L1"
         assert RELATION_TYPE_MAPPING[CONSTRAINED_BY]["target_layer"] == "L3"
+
+    def test_all_relation_type_mappings_have_required_fields(self):
+        for rel_type, mapping in RELATION_TYPE_MAPPING.items():
+            assert "source_layer" in mapping
+            assert "target_layer" in mapping
+            assert "allowed_pairs" in mapping
+
+    def test_all_confidence_bands_for_all_relation_types(self):
+        for rel_type, thresholds in CONFIDENCE_THRESHOLDS.items():
+            assert "high" in thresholds
+            assert "low" in thresholds
+            assert thresholds["high"] > thresholds["low"]
+
+    def test_hard_constraint_is_not_scoring(self):
+        invalid_pairs = [
+            ("Component", "Entity", REFERENCE_OF),
+            ("Entity", "Component", DEFINITION_OF),
+            ("Entity", "Term", CONSTRAINED_BY),
+        ]
+        for source_type, target_type, rel_type in invalid_pairs:
+            result = self.rules.is_valid_relation_type(source_type, target_type, rel_type)
+            assert result is False, f"Expected False for ({source_type}, {target_type}, {rel_type})"
+
+    def test_direction_validation_prevents_reverse(self):
+        assert self.rules.is_valid_direction("L2", "L1", REFERENCE_OF) is False
+        assert self.rules.is_valid_direction("L3", "L2", DEFINITION_OF) is False
+        assert self.rules.is_valid_direction("L3", "L1", CONSTRAINED_BY) is False
+
+    def test_confidence_band_boundary_values(self):
+        assert self.rules.get_confidence_band(0.9200, REFERENCE_OF) == "high"
+        assert self.rules.get_confidence_band(0.9199, REFERENCE_OF) == "medium"
+        assert self.rules.get_confidence_band(0.8000, REFERENCE_OF) == "medium"
+        assert self.rules.get_confidence_band(0.7999, REFERENCE_OF) == "low"
