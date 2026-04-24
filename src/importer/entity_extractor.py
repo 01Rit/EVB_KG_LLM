@@ -93,12 +93,12 @@ class EntityExtractor:
             logger.error(f"Triplet extraction failed: {e}")
             return []
 
-    def extract_entities_with_types(self, text: str, filename: str = '', max_items: int = 100) -> Dict[str, Any]:
+    def extract_entities_with_types(self, text: str, filename: str = '', max_items: int = 30) -> Dict[str, Any]:
         """
         Extract entities with type classification and source evidence.
         Returns: {entities: [...], terms: [...]}
         """
-        text = text[:3500]
+        text = text[:2000]
 
         battery_model = self._detect_battery_model(text, filename)
         logger.info(f"Detected battery model: {battery_model}")
