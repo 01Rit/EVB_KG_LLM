@@ -16,7 +16,14 @@ class L2Importer:
                  progress_callback: Optional[Callable] = None,
                  linker: Optional[CrossLayerLinker] = None):
         self.neo4j = neo4j_client
-        self.extractor = EntityExtractor(llm_client)
+        extraction_llm = LLMClient(
+            api_key=llm_client.client.api_key,
+            base_url=llm_client.client.base_url,
+            model=llm_client.model,
+            temperature=llm_client.temperature,
+            max_tokens=4000
+        )
+        self.extractor = EntityExtractor(extraction_llm)
         self.progress_callback = progress_callback
         self.linker = linker
 
