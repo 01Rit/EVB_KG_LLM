@@ -316,7 +316,9 @@ class EntityExtractor:
         ordered_components = []
 
         new_pattern1 = r'(?:^|\.\s*)(?P<num>i{1,3}|iv|v|vi{1,3}|i{1,3}v|[ivx]+)[\.\)]\s*(?P<action>unscrew|remove|cut|disconnect|extract|separate|loosen)\s+(?P<name>[^(\n]{2,80})'
-        for match in re.finditer(new_pattern1, text, re.IGNORECASE):
+        matches1 = list(re.finditer(new_pattern1, text, re.IGNORECASE))
+        logger.info(f"Fallback pattern1 matches: {len(matches1)}")
+        for match in matches1:
             name = match.group('name').strip()
             name = re.sub(r'\s*\([^)]*\)\s*$', '', name).strip()
             name = self._clean_component_name(name)
@@ -324,12 +326,16 @@ class EntityExtractor:
                 ordered_components.append(name)
 
         new_pattern2 = r'(?:^|\.\s*)(?P<num>\d+)[\.\)]\s*(?P<action>unscrew|remove|cut|disconnect|extract|separate|loosen)\s+(?P<name>[^(\n]{2,80})'
-        for match in re.finditer(new_pattern2, text, re.IGNORECASE):
+        matches2 = list(re.finditer(new_pattern2, text, re.IGNORECASE))
+        logger.info(f"Fallback pattern2 matches: {len(matches2)}")
+        for match in matches2:
             name = match.group('name').strip()
             name = re.sub(r'\s*\([^)]*\)\s*$', '', name).strip()
             name = self._clean_component_name(name)
             if name and len(name) > 2:
                 ordered_components.append(name)
+
+        logger.info(f"Fallback ordered_components after patterns: {len(ordered_components)} - {ordered_components[:5]}")
 
         roman_numeral_pattern = r'(?:^|\.\s*)(?P<num>i{1,3}|iv|v|vi{1,3}|i{1,3}v|[ivx]+)[\.\)]\s*(?P<action>拆卸|拆除|移除|取下|断开|拔出|分离|松开|unscrew|remove|disconnect|cut|extract|separate|loosen)\s+(?P<name>[^(](?:[^()\n]{2,50}))'
         for match in re.finditer(roman_numeral_pattern, text, re.IGNORECASE):
