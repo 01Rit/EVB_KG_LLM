@@ -351,8 +351,23 @@ class EntityExtractor:
                         name = re.sub(r'\.\s*$', '', name).strip()
                     else:
                         continue
-                if name and len(name) > 2:
+                if name and len(name) >= 2:
                     ordered_components.append(name)
+
+        if not ordered_components:
+            for line in text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                if re.match(r'^\d+[\.\)]', line):
+                    continue
+                if re.match(r'^(head|subject|tail|object|relation|predicate|head|predicate)', line, re.IGNORECASE):
+                    continue
+                if len(line) < 2 or len(line) > 60:
+                    continue
+                cleaned = self._clean_component_name(line)
+                if cleaned and len(cleaned) > 1:
+                    ordered_components.append(cleaned)
 
         logger.info(f"Fallback extracted {len(ordered_components)} components: {ordered_components}")
 
