@@ -258,6 +258,18 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
 
             logger.info(f"[L1 TXT Import] Extracted {len(triplets)} triplets")
 
+            if not triplets:
+                message = (
+                    '## ⚠️ L1 TXT导入警告\n\n'
+                    '从LLM未能提取三元组，尝试确定性文本解析...\n\n'
+                    '请确认文本包含明确的拆卸顺序，例如：\n'
+                    '- 必须先拆卸上壳体，才能拆卸绝缘层\n'
+                    '- 1. 拆卸上壳体\n'
+                    '- 2. 拆卸绝缘层'
+                )
+                logger.warning(f"[L1 TXT Import] LLM returned empty, using fallback")
+                SyncProgressTracker.update(task_id, 'parsing', 10, 100, message)
+
             battery_model = None
             if triplets and 'battery_model' in triplets[0]:
                 battery_model = triplets[0]['battery_model']
@@ -281,13 +293,19 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
             for idx, (node_name, node_battery_model) in enumerate(existing_nodes.items()):
                 cypher = '''
                 MERGE (n:Component {name: $name})
+                ON CREATE SET n.id = $id
                 SET n.source_type = 'l1_txt_import'
                 SET n.battery_model = COALESCE($battery_model, 'unknown')
                 RETURN n
                 '''
                 try:
-                    neo4j.execute_query(cypher, {'name': node_name, 'battery_model': node_battery_model})
-                    nodes_created += 1
+                    result = neo4j.execute_query(cypher, {
+                        'id': str(uuid.uuid4()),
+                        'name': node_name,
+                        'battery_model': node_battery_model
+                    })
+                    if result:
+                        nodes_created += 1
                     if node_battery_model and node_battery_model != 'unknown':
                         try:
                             _auto_score_component(node_name, node_battery_model, neo4j)
@@ -327,7 +345,7 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
                 RETURN h, r, t
                 '''
                 try:
-                    neo4j.execute_query(cypher, {
+                    result = neo4j.execute_query(cypher, {
                         'head': head,
                         'relation': relation,
                         'tail': tail,
@@ -336,7 +354,8 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
                         'tail_tool': tail_tool,
                         'tail_safety': tail_safety
                     })
-                    relations_created += 1
+                    if result:
+                        relations_created += 1
                 except Exception as e:
                     errors.append(f"Relation error: {str(e)}")
 
@@ -346,7 +365,10 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
                                               f'**🔗 创建关系**: {relation}', f'关系进度: **{idx+1}/{len(triplets)}**')
 
             logger.info(f"[L1 TXT Import] Completed: {nodes_created} nodes, {relations_created} relations")
-            SyncProgressTracker.complete(task_id, f'## ✅ L1 TXT导入完成\n\n**节点创建**: {nodes_created} 个\n**关系创建**: {relations_created} 个\n\n**三元组详情**:\n' + '\n'.join([f'- {t.get("head", "")} → [{t.get("relation", "")}] → {t.get("tail", "")}' for t in triplets[:5]] + (['...'] if len(triplets) > 5 else [])))
+            error_msg = ''
+            if errors:
+                error_msg = '\n\n**写入警告**:\n' + '\n'.join([f'- {e}' for e in errors[:5]])
+            SyncProgressTracker.complete(task_id, f'## ✅ L1 TXT导入完成\n\n**节点写入**: {nodes_created} 个\n**关系写入**: {relations_created} 个\n\n**三元组详情**:\n' + '\n'.join([f'- {t.get("head", "")} → [{t.get("relation", "")}] → {t.get("tail", "")}' for t in triplets[:5]] + (['...'] if len(triplets) > 5 else [])) + error_msg)
 
         except Exception as e:
             logger.error(f"[L1 TXT Import] Failed task {task_id}: {e}")
