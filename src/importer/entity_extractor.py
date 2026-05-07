@@ -237,6 +237,11 @@ class EntityExtractor:
         value = re.sub(r'^(才能|可以|再|然后|继续)?(拆卸|拆除|移除|取下|断开|拔出|分离|松开)', '', value).strip()
         value = re.sub(r'(完成|后|之前|以后|然后|再)$', '', value).strip()
         value = re.sub(r'^(部件|组件|零件|名称|步骤)\s*[:：]', '', value).strip()
+        action_words = ['unscrew', 'remove', 'cut', 'disconnect', 'extract', 'separate', 'loosen']
+        for action in action_words:
+            value = re.sub(rf'^{action}\s+', '', value, flags=re.IGNORECASE)
+            value = re.sub(rf',\s*and\s+{action}[\s\w]*(?:\.\s*)?$', '', value, flags=re.IGNORECASE)
+            value = re.sub(rf'\s+and\s+{action}[\s\w]*(?:\.\s*)?$', '', value, flags=re.IGNORECASE)
         value = re.sub(r'\s+', ' ', value)
         return value.strip(' ：:，,。.;；[]【】()（）')
 
@@ -281,6 +286,8 @@ class EntityExtractor:
             stripped = line.strip().strip('|')
             if not stripped:
                 continue
+            if re.match(r'^\d+[\.\)]\s', stripped):
+                continue
             parts = [p.strip().strip('|') for p in re.split(r'\s*[,，\t|]\s*', stripped) if p.strip().strip('|')]
             if len(parts) >= 3:
                 first = parts[0].lower()
@@ -315,27 +322,37 @@ class EntityExtractor:
 
         ordered_components = []
 
-        all_patterns = [
-            r'(?:^|\n)(?P<num>i{1,3}|iv|v|vi{1,3}|i{1,3}v|[ivx]+)[\.\)]\s*(?P<action>unscrew|remove|cut|disconnect|extract|separate|loosen)\s+(?P<name>[^(\n]{2,80})',
-            r'(?:^|\n)(?P<num>i{1,3}|iv|v|vi{1,3}|i{1,3}v|[ivx]+)[\.\)]\s*(?P<action>拆卸|拆除|移除|取下|断开|拔出|分离|松开)\s+(?P<name>[^(\n]{2,80})',
-            r'(?:^|\n)(?P<num>\d+)[\.\)]\s*(?P<action>unscrew|remove|cut|disconnect|extract|separate|loosen)\s+(?P<name>[^(\n]{2,80})',
-            r'(?:^|\n)(?P<num>\d+)[\.\)]\s*(?P<action>拆卸|拆除|移除|取下|断开|拔出|分离|松开)\s+(?P<name>[^(\n]{2,80})',
-        ]
-
-        all_matches = []
-        for pattern in all_patterns:
-            for match in re.finditer(pattern, text, re.IGNORECASE | re.MULTILINE):
-                name = match.group('name').strip()
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            match = re.match(r'^\d+[\.\)]\s*(?P<rest>.+)$', line, re.IGNORECASE)
+            if not match:
+                continue
+            rest = match.group('rest')
+            while True:
+                and_match = re.match(r'^and\s+(?P<next_action>\w+)\s+(?P<next_rest>.+)$', rest, re.IGNORECASE)
+                if and_match:
+                    rest = and_match.group('next_rest')
+                else:
+                    break
+            parts = re.split(r',\s*|\s+and\s+', rest)
+            if parts:
+                name = parts[0].strip()
                 name = re.sub(r'\s*\([^)]*\)\s*$', '', name).strip()
                 name = self._clean_component_name(name)
+                name = re.sub(r'\.\s*$', '', name).strip()
+                action_only = re.match(r'^(unscrew|remove|cut|disconnect|extract|separate|loosen)$', name, re.IGNORECASE)
+                if action_only:
+                    if len(parts) > 1:
+                        name = parts[1].strip()
+                        name = re.sub(r'\s*\([^)]*\)\s*$', '', name).strip()
+                        name = self._clean_component_name(name)
+                        name = re.sub(r'\.\s*$', '', name).strip()
+                    else:
+                        continue
                 if name and len(name) > 2:
-                    all_matches.append(name)
-
-        seen = set()
-        for name in all_matches:
-            if name not in seen:
-                ordered_components.append(name)
-                seen.add(name)
+                    ordered_components.append(name)
 
         logger.info(f"Fallback extracted {len(ordered_components)} components: {ordered_components}")
 
