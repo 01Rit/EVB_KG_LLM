@@ -316,15 +316,15 @@ class EntityExtractor:
         ordered_components = []
 
         all_patterns = [
-            r'(?:^|\.\s*)(?P<num>i{1,3}|iv|v|vi{1,3}|i{1,3}v|[ivx]+)[\.\)]\s*(?P<action>unscrew|remove|cut|disconnect|extract|separate|loosen)\s+(?P<name>[^(\n]{2,80})',
-            r'(?:^|\.\s*)(?P<num>i{1,3}|iv|v|vi{1,3}|i{1,3}v|[ivx]+)[\.\)]\s*(?P<action>拆卸|拆除|移除|取下|断开|拔出|分离|松开)\s+(?P<name>[^(\n]{2,80})',
-            r'(?:^|\.\s*)(?P<num>\d+)[\.\)]\s*(?P<action>unscrew|remove|cut|disconnect|extract|separate|loosen)\s+(?P<name>[^(\n]{2,80})',
-            r'(?:^|\.\s*)(?P<num>\d+)[\.\)]\s*(?P<action>拆卸|拆除|移除|取下|断开|拔出|分离|松开)\s+(?P<name>[^(\n]{2,80})',
+            r'(?:^|\n)(?P<num>i{1,3}|iv|v|vi{1,3}|i{1,3}v|[ivx]+)[\.\)]\s*(?P<action>unscrew|remove|cut|disconnect|extract|separate|loosen)\s+(?P<name>[^(\n]{2,80})',
+            r'(?:^|\n)(?P<num>i{1,3}|iv|v|vi{1,3}|i{1,3}v|[ivx]+)[\.\)]\s*(?P<action>拆卸|拆除|移除|取下|断开|拔出|分离|松开)\s+(?P<name>[^(\n]{2,80})',
+            r'(?:^|\n)(?P<num>\d+)[\.\)]\s*(?P<action>unscrew|remove|cut|disconnect|extract|separate|loosen)\s+(?P<name>[^(\n]{2,80})',
+            r'(?:^|\n)(?P<num>\d+)[\.\)]\s*(?P<action>拆卸|拆除|移除|取下|断开|拔出|分离|松开)\s+(?P<name>[^(\n]{2,80})',
         ]
 
         all_matches = []
         for pattern in all_patterns:
-            for match in re.finditer(pattern, text, re.IGNORECASE):
+            for match in re.finditer(pattern, text, re.IGNORECASE | re.MULTILINE):
                 name = match.group('name').strip()
                 name = re.sub(r'\s*\([^)]*\)\s*$', '', name).strip()
                 name = self._clean_component_name(name)
