@@ -36,6 +36,7 @@ class EntityExtractor:
             return []
 
     def extract_triplets(self, text: str, max_items: int = 100, filename: str = '') -> List[Dict[str, Any]]:
+        original_text = text
         text = text[:3000]
 
         battery_model = self._detect_battery_model(text, filename)
@@ -81,7 +82,11 @@ class EntityExtractor:
 
         try:
             result = self.llm.generate(prompt)
-            triplets = self._parse_json_array(result)
+            triplets = self._normalize_triplets(self._parse_json_array(result))
+
+            if not triplets:
+                logger.warning("LLM returned no valid triplets, using deterministic text fallback")
+                triplets = self._extract_triplets_fallback(original_text)
 
             if battery_model and triplets:
                 for t in triplets:
@@ -92,6 +97,252 @@ class EntityExtractor:
         except Exception as e:
             logger.error(f"Triplet extraction failed: {e}")
             return []
+
+    def _first_scalar(self, value: Any) -> str:
+        if value is None:
+            return ''
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                scalar = self._first_scalar(item)
+                if scalar:
+                    return scalar
+            return ''
+        if isinstance(value, dict):
+            for key in ('name', 'value', 'text', 'label', '名称'):
+                scalar = self._first_scalar(value.get(key))
+                if scalar:
+                    return scalar
+            return ''
+        text = str(value).strip()
+        if text in {'[]', '{}', 'null', 'None'}:
+            return ''
+        return text
+
+    def _normalize_triplet(self, item: Any) -> Optional[Dict[str, Any]]:
+        if isinstance(item, (list, tuple)) and len(item) >= 3:
+            head, relation, tail = item[0], item[1], item[2]
+            extra = {}
+        elif isinstance(item, dict):
+            head = next((item.get(k) for k in (
+                'head', 'subject', 'source', 'from', 'start', 'head_entity',
+                '头实体', '主体', '源实体', '起点', '前序部件', '前置部件'
+            ) if k in item), '')
+            relation = next((item.get(k) for k in (
+                'relation', 'predicate', 'relationship', 'type', 'relation_type',
+                '关系', '谓词', '关系类型'
+            ) if k in item), '')
+            tail = next((item.get(k) for k in (
+                'tail', 'object', 'target', 'to', 'end', 'tail_entity',
+                '尾实体', '客体', '目标实体', '终点', '后序部件', '后续部件'
+) if k in item), '')
+            extra = item
+        else:
+            return None
+
+        normalized = {
+            'head': self._first_scalar(head),
+            'relation': self._first_scalar(relation),
+            'tail': self._first_scalar(tail),
+        }
+
+        if len(normalized['head']) > 80 or len(normalized['tail']) > 80:
+            return None
+        if re.search(r'(?:^|\s)(i{1,3}|iv|vi{0,3}|i{0,3}v)(?:[\s\.\,\)\(]|$)', normalized['head'], re.IGNORECASE):
+            return None
+
+        if not normalized['head'] or not normalized['tail']:
+            return None
+
+        if not normalized['relation']:
+            normalized['relation'] = '必须先于...拆卸'
+
+        if isinstance(extra, dict):
+            for source_key, target_key in (
+                ('head_tool', 'head_tool'),
+                ('头实体工具', 'head_tool'),
+                ('head_safety', 'head_safety'),
+                ('头实体安全等级', 'head_safety'),
+                ('tail_tool', 'tail_tool'),
+                ('尾实体工具', 'tail_tool'),
+                ('tail_safety', 'tail_safety'),
+                ('尾实体安全等级', 'tail_safety'),
+                ('battery_model', 'battery_model'),
+            ):
+                if source_key in extra:
+                    normalized[target_key] = self._first_scalar(extra[source_key])
+
+        return normalized
+
+    def _normalize_triplets(self, items: Any) -> List[Dict[str, Any]]:
+        normalized = []
+        if isinstance(items, dict):
+            for key in ('triplets', 'triples', 'relations', 'relationships', 'data', '三元组', '关系'):
+                if isinstance(items.get(key), list):
+                    items = items[key]
+                    break
+            else:
+                items = [items]
+
+        if not isinstance(items, list):
+            return []
+
+        seen = set()
+        for item in items:
+            if isinstance(item, dict):
+                nested = None
+                for nested_key in ('triplets', 'triples', 'relations', 'relationships', 'data', '三元组', '关系'):
+                    if isinstance(item.get(nested_key), list):
+                        nested = item[nested_key]
+                        break
+                if nested is not None:
+                    for nested_item in nested:
+                        triplet = self._normalize_triplet(nested_item)
+                        if not triplet:
+                            continue
+                        key = (triplet['head'], triplet['relation'], triplet['tail'])
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        normalized.append(triplet)
+                    continue
+
+            triplet = self._normalize_triplet(item)
+            if not triplet:
+                continue
+            key = (triplet['head'], triplet['relation'], triplet['tail'])
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(triplet)
+        return normalized
+
+    def _clean_component_name(self, value: str) -> str:
+        value = re.sub(r'^[\d一二三四五六七八九十]+[\.、\)\s-]*', '', value.strip())
+        value = re.sub(r'^(才能|可以|再|然后|继续)?(拆卸|拆除|移除|取下|断开|拔出|分离|松开)', '', value).strip()
+        value = re.sub(r'(完成|后|之前|以后|然后|再)$', '', value).strip()
+        value = re.sub(r'^(部件|组件|零件|名称|步骤)\s*[:：]', '', value).strip()
+        value = re.sub(r'\s+', ' ', value)
+        return value.strip(' ：:，,。.;；[]【】()（）')
+
+    def _looks_like_component_line(self, line: str) -> bool:
+        if not line or len(line) > 80:
+            return False
+        lowered = line.lower()
+        blocked = {
+            'head', 'tail', 'relation', 'subject', 'object', 'predicate',
+            '三元组', '关系', '导入', '说明', '要求', '步骤', '工具', '安全等级'
+        }
+        if lowered in blocked or line in blocked:
+            return False
+        if re.search(r'https?://|```|\{|\}|^\|?[-:]+\|?$', line):
+            return False
+        return bool(re.search(r'[\w\u4e00-\u9fff]', line))
+
+    def _append_triplet(self, triplets: List[Dict[str, Any]], head: str, relation: str, tail: str) -> None:
+        head = self._clean_component_name(head)
+        tail = self._clean_component_name(tail)
+        relation = self._first_scalar(relation) or '必须先于...拆卸'
+        if head and tail and head != tail:
+            triplets.append({'head': head, 'relation': relation, 'tail': tail})
+
+    def _extract_triplets_fallback(self, text: str, max_items: int = 100) -> List[Dict[str, Any]]:
+        triplets: List[Dict[str, Any]] = []
+
+        arrow_patterns = [
+            r'(?P<head>[^,\n\r\t\-\>→]+?)\s*(?:-|=)?(?:>|→|=>|-->)\s*(?:\[?(?P<relation>[^\]→>\n\r]{1,40})\]?)\s*(?:-|=)?(?:>|→|=>|-->)\s*(?P<tail>[^\n\r]+)',
+            r'(?P<head>[^,\n\r\t]+?)\s*[-=]+\s*(?P<relation>必须先于\.\.\.拆卸|必须先于.*?拆卸|需要先拆卸|拆卸顺序|precedes|before)\s*[-=]+>?\s*(?P<tail>[^\n\r]+)',
+        ]
+        for pattern in arrow_patterns:
+            for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+                self._append_triplet(
+                    triplets,
+                    match.group('head'),
+                    match.group('relation'),
+                    match.group('tail')
+                )
+
+        for line in text.splitlines():
+            stripped = line.strip().strip('|')
+            if not stripped:
+                continue
+            parts = [p.strip().strip('|') for p in re.split(r'\s*[,，\t|]\s*', stripped) if p.strip().strip('|')]
+            if len(parts) >= 3:
+                first = parts[0].lower()
+                if first in {'head', 'subject', '头实体', '主体'}:
+                    continue
+                self._append_triplet(triplets, parts[0], parts[1], parts[2])
+
+        relation_text_patterns = [
+            r'(?P<head>[\w\u4e00-\u9fff（）()\-_\s]{2,40})(?P<relation>必须先于\.\.\.拆卸|必须先于[\w\u4e00-\u9fff（）()\-_\s]*拆卸|需要先拆卸|拆卸顺序|precedes|before)(?P<tail>[\w\u4e00-\u9fff（）()\-_\s]{2,40})',
+            r'(?P<head>[\w\u4e00-\u9fff（）()\-_\s]{2,40})\s+(?P<relation>precedes|before)\s+(?P<tail>[\w\u4e00-\u9fff（）()\-_\s]{2,40})',
+]
+        for pattern in relation_text_patterns:
+            for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+                self._append_triplet(
+                    triplets,
+                    match.group('head'),
+                    match.group('relation'),
+                    match.group('tail')
+                )
+
+        explicit_patterns = [
+            r'(?P<head>[\w\u4e00-\u9fff（）()\-_\s]{2,40})必须先于(?P<tail>[\w\u4e00-\u9fff（）()\-_\s]{2,40})拆卸',
+            r'必须先(?:拆卸|拆除|移除|取下)?(?P<head>[\w\u4e00-\u9fff（）()\-_\s]{2,40})(?:后|，|,|才能|再)(?:拆卸|拆除|移除|取下)?(?P<tail>[\w\u4e00-\u9fff（）()\-_\s]{2,40})',
+            r'先(?:拆卸|拆除|移除|取下)?(?P<head>[\w\u4e00-\u9fff（）()\-_\s]{2,40})(?:后|，|,|再)(?:拆卸|拆除|移除|取下)?(?P<tail>[\w\u4e00-\u9fff（）()\-_\s]{2,40})',
+        ]
+        for pattern in explicit_patterns:
+            for match in re.finditer(pattern, text):
+                self._append_triplet(triplets, match.group('head'), '必须先于...拆卸', match.group('tail'))
+
+        if triplets:
+            return self._normalize_triplets(triplets)[:max_items]
+
+        ordered_components = []
+
+        roman_numeral_pattern = r'(?:^|\.\s*)(?P<num>i{1,3}|iv|v|vi{1,3}|i{1,3}v|[ivx]+)[\.\)]\s*(?P<action>拆卸|拆除|移除|取下|断开|拔出|分离|松开|unscrew|remove|disconnect|cut|extract|separate|loosen)\s+(?P<name>[^(](?:[^()\n]{2,50}))'
+        for match in re.finditer(roman_numeral_pattern, text, re.IGNORECASE):
+            name = self._clean_component_name(match.group('name'))
+            if name and name not in ordered_components:
+                ordered_components.append(name)
+
+        numbered_pattern = r'(?:^|\.\s*)(?P<num>\d+)[\.\)]\s*(?P<action>拆卸|拆除|移除|取下|断开|拔出|分离|松开|unscrew|remove|disconnect|cut|extract|separate|loosen)\s+(?P<name>[^(](?:[^()\n]{2,50}))'
+        for match in re.finditer(numbered_pattern, text, re.IGNORECASE):
+            name = self._clean_component_name(match.group('name'))
+            if name and name not in ordered_components:
+                ordered_components.append(name)
+
+        ordered_components = ordered_components[:20]
+
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            match = re.match(
+                r'^(?:步骤\s*)?[\d一二三四五六七八九十]+[\.、\)\s-]+(?:拆卸|拆除|移除|取下|断开|拔出|分离|松开)?(?P<name>[^，,。.;；\n]{2,60})',
+                stripped
+            )
+            if match:
+                name = self._clean_component_name(match.group('name'))
+                if name and name not in ordered_components:
+                    ordered_components.append(name)
+
+        if not ordered_components:
+            for line in text.splitlines():
+                stripped = self._clean_component_name(line.strip().lstrip('-*•').strip())
+                if self._looks_like_component_line(stripped) and stripped not in ordered_components:
+                    ordered_components.append(stripped)
+
+        if not ordered_components:
+            inline_matches = re.findall(r'(?:拆卸|拆除|移除|取下|断开|拔出|分离|松开)([\w\u4e00-\u9fff（）()\-_]{2,30})', text)
+            for name in inline_matches:
+                cleaned = self._clean_component_name(name)
+                if cleaned and cleaned not in ordered_components:
+                    ordered_components.append(cleaned)
+
+        for head, tail in zip(ordered_components, ordered_components[1:]):
+            triplets.append({'head': head, 'relation': '必须先于...拆卸', 'tail': tail})
+
+        return self._normalize_triplets(triplets)[:max_items]
 
     def extract_entities_with_types(self, text: str, filename: str = '', max_items: int = 30) -> Dict[str, Any]:
         """
@@ -206,6 +457,10 @@ class EntityExtractor:
                 if 'Audi' in match.group(0):
                     return 'Audi_A3'
                 return match.group(1) if match.groups() else match.group(0)
+        if filename:
+            stem = filename.rsplit('.', 1)[0].strip()
+            if stem:
+                return re.sub(r'[^\w\u4e00-\u9fff-]+', '_', stem)
         return None
 
     def _parse_json_array(self, response: str) -> List[Dict[str, Any]]:
@@ -223,11 +478,32 @@ class EntityExtractor:
                     json_content.append(line)
             response = "\n".join(json_content)
 
-        if response.startswith("["):
-            try:
-                return json.loads(response)
-            except:
-                pass
+        try:
+            parsed = json.loads(response)
+            if isinstance(parsed, list):
+                return parsed
+            if isinstance(parsed, dict):
+                return [parsed]
+        except:
+            pass
+
+        try:
+            object_match = re.search(r'\{[\s\S]*\}', response)
+            if object_match:
+                parsed = json.loads(object_match.group(0))
+                if isinstance(parsed, dict):
+                    return [parsed]
+        except:
+            pass
+
+        try:
+            array_match = re.search(r'\[[\s\S]*\]', response)
+            if array_match:
+                parsed = json.loads(array_match.group(0))
+                if isinstance(parsed, list):
+                    return parsed
+        except:
+            pass
 
         lines = response.split("\n")
         items = []
