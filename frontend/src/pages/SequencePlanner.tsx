@@ -411,7 +411,10 @@ export function SequencePlanner() {
           </div>
 
           {result && result.data?.steps && result.data.steps.length > 0 && (
-            <GanttChart steps={result.data.steps} />
+            <GanttChart
+              steps={result.data.steps}
+              parallelBatches={result.data.parallel_batches || []}
+            />
           )}
 
           {debug && result.data?.trace && (
