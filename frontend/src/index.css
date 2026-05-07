@@ -127,8 +127,8 @@ body {
   max-width: 100%;
 }
 .gantt-bar.robot {
-  background: #2563eb;
+  background: #DD8452;
 }
 .gantt-bar.human {
-  background: #6b7280;
+  background: #4C72B0;
 }
