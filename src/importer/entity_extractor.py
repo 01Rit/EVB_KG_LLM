@@ -87,6 +87,7 @@ class EntityExtractor:
             if not triplets:
                 logger.warning("LLM returned no valid triplets, using deterministic text fallback")
                 triplets = self._extract_triplets_fallback(original_text)
+                logger.info(f"Fallback extracted {len(triplets)} raw triplets")
 
             if battery_model and triplets:
                 for t in triplets:
@@ -147,7 +148,8 @@ class EntityExtractor:
 
         if len(normalized['head']) > 80 or len(normalized['tail']) > 80:
             return None
-        if re.search(r'(?:^|\s)(i{1,3}|iv|vi{0,3}|i{0,3}v)(?:[\s\.\,\)\(]|$)', normalized['head'], re.IGNORECASE):
+        head_lower = normalized['head'].lower()
+        if re.search(r'\bi+v+\b', head_lower) and re.search(r'\bi+\b', head_lower) and len(normalized['head']) > 50:
             return None
 
         if not normalized['head'] or not normalized['tail']:
