@@ -162,7 +162,8 @@ class EntityExtractor:
         if len(normalized['head']) > 80 or len(normalized['tail']) > 80:
             return None
         head_lower = normalized['head'].lower()
-        if re.search(r'\bi+v+\b', head_lower) and re.search(r'\bi+\b', head_lower) and len(normalized['head']) > 50:
+        roman_pattern = r'^(i{1,3}|iv|vi{0,3}|i{0,3}v)[\.\)]'
+        if re.match(roman_pattern, head_lower) or re.search(r'\s(i{1,3}|iv|vi{0,3}|i{0,3}v)[\.\)]', head_lower):
             return None
 
         if not normalized['head'] or not normalized['tail']:
