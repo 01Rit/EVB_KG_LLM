@@ -315,67 +315,29 @@ class EntityExtractor:
 
         ordered_components = []
 
-        new_pattern1 = r'(?:^|\.\s*)(?P<num>i{1,3}|iv|v|vi{1,3}|i{1,3}v|[ivx]+)[\.\)]\s*(?P<action>unscrew|remove|cut|disconnect|extract|separate|loosen)\s+(?P<name>[^(\n]{2,80})'
-        matches1 = list(re.finditer(new_pattern1, text, re.IGNORECASE))
-        logger.info(f"Fallback pattern1 matches: {len(matches1)}")
-        for match in matches1:
-            name = match.group('name').strip()
-            name = re.sub(r'\s*\([^)]*\)\s*$', '', name).strip()
-            name = self._clean_component_name(name)
-            if name and len(name) > 2:
+        all_patterns = [
+            r'(?:^|\.\s*)(?P<num>i{1,3}|iv|v|vi{1,3}|i{1,3}v|[ivx]+)[\.\)]\s*(?P<action>unscrew|remove|cut|disconnect|extract|separate|loosen)\s+(?P<name>[^(\n]{2,80})',
+            r'(?:^|\.\s*)(?P<num>i{1,3}|iv|v|vi{1,3}|i{1,3}v|[ivx]+)[\.\)]\s*(?P<action>拆卸|拆除|移除|取下|断开|拔出|分离|松开)\s+(?P<name>[^(\n]{2,80})',
+            r'(?:^|\.\s*)(?P<num>\d+)[\.\)]\s*(?P<action>unscrew|remove|cut|disconnect|extract|separate|loosen)\s+(?P<name>[^(\n]{2,80})',
+            r'(?:^|\.\s*)(?P<num>\d+)[\.\)]\s*(?P<action>拆卸|拆除|移除|取下|断开|拔出|分离|松开)\s+(?P<name>[^(\n]{2,80})',
+        ]
+
+        all_matches = []
+        for pattern in all_patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                name = match.group('name').strip()
+                name = re.sub(r'\s*\([^)]*\)\s*$', '', name).strip()
+                name = self._clean_component_name(name)
+                if name and len(name) > 2:
+                    all_matches.append(name)
+
+        seen = set()
+        for name in all_matches:
+            if name not in seen:
                 ordered_components.append(name)
+                seen.add(name)
 
-        new_pattern2 = r'(?:^|\.\s*)(?P<num>\d+)[\.\)]\s*(?P<action>unscrew|remove|cut|disconnect|extract|separate|loosen)\s+(?P<name>[^(\n]{2,80})'
-        matches2 = list(re.finditer(new_pattern2, text, re.IGNORECASE))
-        logger.info(f"Fallback pattern2 matches: {len(matches2)}")
-        for match in matches2:
-            name = match.group('name').strip()
-            name = re.sub(r'\s*\([^)]*\)\s*$', '', name).strip()
-            name = self._clean_component_name(name)
-            if name and len(name) > 2:
-                ordered_components.append(name)
-
-        logger.info(f"Fallback ordered_components after patterns: {len(ordered_components)} - {ordered_components[:5]}")
-
-        roman_numeral_pattern = r'(?:^|\.\s*)(?P<num>i{1,3}|iv|v|vi{1,3}|i{1,3}v|[ivx]+)[\.\)]\s*(?P<action>拆卸|拆除|移除|取下|断开|拔出|分离|松开|unscrew|remove|disconnect|cut|extract|separate|loosen)\s+(?P<name>[^(](?:[^()\n]{2,50}))'
-        for match in re.finditer(roman_numeral_pattern, text, re.IGNORECASE):
-            name = self._clean_component_name(match.group('name'))
-            if name and name not in ordered_components:
-                ordered_components.append(name)
-
-        numbered_pattern = r'(?:^|\.\s*)(?P<num>\d+)[\.\)]\s*(?P<action>拆卸|拆除|移除|取下|断开|拔出|分离|松开|unscrew|remove|disconnect|cut|extract|separate|loosen)\s+(?P<name>[^(](?:[^()\n]{2,50}))'
-        for match in re.finditer(numbered_pattern, text, re.IGNORECASE):
-            name = self._clean_component_name(match.group('name'))
-            if name and name not in ordered_components:
-                ordered_components.append(name)
-
-        ordered_components = ordered_components[:20]
-
-        for line in text.splitlines():
-            stripped = line.strip()
-            if not stripped:
-                continue
-            match = re.match(
-                r'^(?:步骤\s*)?[\d一二三四五六七八九十]+[\.、\)\s-]+(?:拆卸|拆除|移除|取下|断开|拔出|分离|松开)?(?P<name>[^，,。.;；\n]{2,60})',
-                stripped
-            )
-            if match:
-                name = self._clean_component_name(match.group('name'))
-                if name and name not in ordered_components:
-                    ordered_components.append(name)
-
-        if not ordered_components:
-            for line in text.splitlines():
-                stripped = self._clean_component_name(line.strip().lstrip('-*•').strip())
-                if self._looks_like_component_line(stripped) and stripped not in ordered_components:
-                    ordered_components.append(stripped)
-
-        if not ordered_components:
-            inline_matches = re.findall(r'(?:拆卸|拆除|移除|取下|断开|拔出|分离|松开)([\w\u4e00-\u9fff（）()\-_]{2,30})', text)
-            for name in inline_matches:
-                cleaned = self._clean_component_name(name)
-                if cleaned and cleaned not in ordered_components:
-                    ordered_components.append(cleaned)
+        logger.info(f"Fallback extracted {len(ordered_components)} components: {ordered_components}")
 
         for head, tail in zip(ordered_components, ordered_components[1:]):
             triplets.append({'head': head, 'relation': '必须先于...拆卸', 'tail': tail})
