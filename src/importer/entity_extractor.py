@@ -82,7 +82,11 @@ class EntityExtractor:
 
         try:
             result = self.llm.generate(prompt)
-            triplets = self._normalize_triplets(self._parse_json_array(result))
+            parsed = self._parse_json_array(result)
+            if parsed:
+                triplets = self._normalize_triplets(parsed)
+            else:
+                triplets = []
 
             if not triplets:
                 logger.warning("LLM returned no valid triplets, using deterministic text fallback")
@@ -96,8 +100,17 @@ class EntityExtractor:
             logger.info(f"Extracted {len(triplets)} triplets for {battery_model or 'unknown'}")
             return triplets[:max_items]
         except Exception as e:
-            logger.error(f"Triplet extraction failed: {e}")
-            return []
+            logger.error(f"Tuple extraction failed: {e}, using fallback")
+            try:
+                triplets = self._extract_triplets_fallback(original_text)
+                logger.info(f"Fallback after exception: {len(triplets)} triplets")
+                if battery_model and triplets:
+                    for t in triplets:
+                        t['battery_model'] = battery_model
+                return triplets[:max_items]
+            except Exception as fallback_error:
+                logger.error(f"Fallback also failed: {fallback_error}")
+                return []
 
     def _first_scalar(self, value: Any) -> str:
         if value is None:
