@@ -255,6 +255,48 @@ class Neo4jClient:
             logger.error(f"Failed to update component {component_name}: {e}")
             return False
 
+    def get_component_by_name(self, component_name: str, battery_model: str = None) -> Optional[dict]:
+        """Get a single component by name."""
+        if battery_model:
+            cypher = '''
+            MATCH (c:Component {name: $name, battery_model: $battery_model})
+            RETURN COALESCE(c.id, c.name) as id, c.name as name, c.battery_model as battery_model,
+                   c.tool_required as tool_required, c.safety_level as safety_level,
+                   c.source_type as source_type
+            '''
+            results = self.execute_query(cypher, {'name': component_name, 'battery_model': battery_model})
+        else:
+            cypher = '''
+            MATCH (c:Component {name: $name})
+            RETURN COALESCE(c.id, c.name) as id, c.name as name, c.battery_model as battery_model,
+                   c.tool_required as tool_required, c.safety_level as safety_level,
+                   c.source_type as source_type
+            '''
+            results = self.execute_query(cypher, {'name': component_name})
+        return results[0] if results else None
+
+    def get_component_relationships(self, component_name: str, battery_model: str = None) -> dict:
+        """Get neighboring components and relationship types for a given component."""
+        if battery_model:
+            cypher = '''
+            MATCH (c:Component {name: $name, battery_model: $battery_model})-[r]-(neighbor)
+            RETURN COALESCE(neighbor.name, neighbor.id) as neighbor_name,
+                   type(r) as relation_type,
+                   r.head_tool as head_tool, r.tail_tool as tail_tool,
+                   r.head_safety as head_safety, r.tail_safety as tail_safety
+            '''
+            results = self.execute_query(cypher, {'name': component_name, 'battery_model': battery_model})
+        else:
+            cypher = '''
+            MATCH (c:Component {name: $name})-[r]-(neighbor)
+            RETURN COALESCE(neighbor.name, neighbor.id) as neighbor_name,
+                   type(r) as relation_type,
+                   r.head_tool as head_tool, r.tail_tool as tail_tool,
+                   r.head_safety as head_safety, r.tail_safety as tail_safety
+            '''
+            results = self.execute_query(cypher, {'name': component_name})
+        return {'neighbors': results} if results else {'neighbors': []}
+
     def get_subgraph_nodes(self, node_ids: list[str]) -> list[dict]:
         """Get node details for a list of node IDs."""
         if not node_ids:
