@@ -49,6 +49,31 @@ class CrossLayerLinker:
         
         return candidates
 
+    def run_pipeline_batch(
+        self,
+        sources: List[Dict],
+        target_layer: str,
+        relation_type: str
+    ) -> List[Dict]:
+        """Process multiple source nodes in batch for efficiency."""
+        all_candidates = []
+        for source in sources:
+            try:
+                candidates = self.run_pipeline(
+                    source_node_id=source.get('id', ''),
+                    source_name=source.get('name', ''),
+                    source_type=source.get('type', 'Entity'),
+                    source_layer=source.get('layer', 'L2'),
+                    source_context=source.get('context', ''),
+                    target_layer=target_layer,
+                    relation_type=relation_type
+                )
+                all_candidates.extend(candidates)
+            except Exception as e:
+                logger.error(f"Batch pipeline failed for source {source.get('name', '')}: {e}")
+                continue
+        return all_candidates
+
     def _step1_embed_recall(
         self,
         source_node_id: str,
