@@ -147,21 +147,27 @@ flowchart LR
     V -->|充足| Output[输出最终方案]
 ```
 
-### 三层知识图谱
+### 三层知识图谱与跨层连接
 
 ```mermaid
 erDiagram
-    COMPONENT ||--o{ DOCUMENT : REFERENCED_IN
-    COMPONENT ||--o{ TERM : DEFINED_AS
-    COMPONENT ||--o{ COMPONENT : PRECEDES
-    COMPONENT ||--o{ COMPONENT : USES_TOOL
+    L1_COMPONENT ||--o{ L2_ENTITY : REFERENCE_OF
+    L2_ENTITY ||--o{ L3_TERM : DEFINITION_OF
+    L1_COMPONENT ||--o{ L3_TERM : CONSTRAINED_BY
+    L2_DOCUMENT ||--o{ L2_ENTITY : CONTAINS
+    L2_ENTITY ||--o{ L2_DOCUMENT : REFERENCED_IN
+    L3_TERM ||--o{ L2_DOCUMENT : ORIGINATED_FROM
 ```
 
-| 层级 | 类型 | 说明 |
-|------|------|------|
-| L1 | Component | 拆卸部件/步骤（用户指定） |
-| L2 | Document | 参考文档（PDF导入） |
-| L3 | Term | 术语定义（自动提取） |
+| 层级 | 类型 | 说明 | 跨层关系 |
+|------|------|------|----------|
+| L1 | Component | 拆卸部件/步骤（用户指定） | L1→L2: REFERENCE_OF |
+| L2 | Document + Entity | 参考文档（PDF导入） | L2→L3: DEFINITION_OF |
+| L3 | Term | 术语定义（自动提取） | L1→L3: CONSTRAINED_BY |
+
+**跨层连接流程：**
+- **L2导入时**：自动提取L2实体和L3术语，通过名称匹配创建DEFINITION_OF连接
+- **拆卸规划时**：CrossLayerRetriever自动创建REFERENCE_OF (L1→L2)连接
 
 ---
 
@@ -234,9 +240,21 @@ npm run dev
 
 ### 5. 访问界面
 
-- 前端界面: http://localhost:3000
+- 前端界面: http://localhost:9333
 - API文档: http://localhost:8000/docs
-- Neo4j Browser: http://localhost:7474
+- Neo4j Browser: http://localhost:17474
+
+### Docker 端口映射
+
+| 服务 | 主机端口 | 容器端口 |
+|------|---------|---------|
+| 前端 | 9333 | 3000 |
+| 后端API | 8000 | 8000 |
+| Neo4j Browser | 17474 | 7474 |
+| Neo4j Bolt | 17687 | 7687 |
+| Milvus | 19530 | 19530 |
+| MinIO | 9100 | 9000 |
+| etcd | 2379 | 2379 |
 
 ---
 
