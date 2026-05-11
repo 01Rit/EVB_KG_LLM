@@ -441,6 +441,68 @@ class EntityExtractor:
             logger.error(f"Entity type extraction failed: {e}")
             return {'entities': [], 'terms': []}
 
+    def extract_entities_chunked(self, text: str, filename: str = '',
+                                max_items: int = 50,
+                                chunk_size: int = 2000,
+                                overlap: int = 200) -> Dict[str, Any]:
+        """Extract entities and terms from multiple overlapping text chunks.
+
+        This method addresses the issue where only the first 2000 characters were processed,
+        resulting in too few L3 terms being extracted.
+        """
+        chunks = self._split_text(text, chunk_size, overlap)
+        logger.info(f"Split text into {len(chunks)} chunks for extraction")
+
+        all_entities = []
+        all_terms = []
+
+        for i, chunk in enumerate(chunks):
+            try:
+                result = self.extract_entities_with_types(chunk, filename, max_items)
+                all_entities.extend(result.get('entities', []))
+                all_terms.extend(result.get('terms', []))
+                logger.debug(f"Chunk {i}: extracted {len(result.get('entities', []))} entities, "
+                           f"{len(result.get('terms', []))} terms")
+            except Exception as e:
+                logger.warning(f"Chunk {i} extraction failed: {e}")
+                continue
+
+        entities = self._deduplicate_by_name(all_entities)
+        terms = self._deduplicate_by_name(all_terms)
+
+        logger.info(f"Chunked extraction total: {len(all_entities)} raw entities, "
+                   f"{len(all_terms)} raw terms; after dedup: {len(entities)} entities, "
+                   f"{len(terms)} terms")
+
+        return {
+            'entities': entities[:max_items],
+            'terms': terms[:max_items]
+        }
+
+    def _split_text(self, text: str, chunk_size: int = 2000, overlap: int = 200) -> List[str]:
+        """Split text into overlapping chunks."""
+        if len(text) <= chunk_size:
+            return [text]
+
+        chunks = []
+        start = 0
+        while start < len(text):
+            end = start + chunk_size
+            chunks.append(text[start:end])
+            start = end - overlap
+        return chunks
+
+    def _deduplicate_by_name(self, items: List[Dict], name_key: str = 'name') -> List[Dict]:
+        """Deduplicate items by name, keeping the first occurrence."""
+        seen = set()
+        result = []
+        for item in items:
+            name = item.get(name_key, '')
+            if name and name not in seen:
+                seen.add(name)
+                result.append(item)
+        return result
+
     def extract_terms_from_markdown(self, text: str, max_items: int = 50) -> List[Dict[str, Any]]:
         text = text[:4000]
 

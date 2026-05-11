@@ -35,7 +35,9 @@ class L2Importer:
     def import_pdf(self, full_text: str, filename: str) -> Dict[str, Any]:
         self._report_progress('parsing', 5, 100, '## 📄 开始解析PDF文档...')
 
-        extraction = self.extractor.extract_entities_with_types(full_text, filename=filename)
+        extraction = self.extractor.extract_entities_chunked(
+            full_text, filename=filename, chunk_size=4000, overlap=100
+        )
         entities = extraction.get('entities', [])
         terms = extraction.get('terms', [])
 
@@ -67,7 +69,9 @@ class L2Importer:
     def import_markdown(self, full_text: str, filename: str) -> Dict[str, Any]:
         self._report_progress('parsing', 5, 100, '## 📝 开始解析Markdown文档...')
 
-        extraction = self.extractor.extract_entities_with_types(full_text, filename=filename)
+        extraction = self.extractor.extract_entities_chunked(
+            full_text, filename=filename, chunk_size=4000, overlap=100
+        )
         entities = extraction.get('entities', [])
         terms = extraction.get('terms', [])
 
@@ -176,28 +180,25 @@ class L2Importer:
     def _create_cross_layer_relations(self, doc_id: str, entities: List[Dict], terms: List[Dict]) -> int:
         """Create cross-layer relations.
 
-        NOTE: REFERENCE_OF (L1→L2) is NOT created here - it should be created
-        during disassembly planning when actual component knowledge is queried.
-        DEFINITION_OF (L2→L3) is created here based on name matching.
+        Creates:
+        - DEFINITION_OF (L2→L3) via linker or name matching
+        - REFERENCE_OF (L1→L2) via linker
+        - ORIGINATED_FROM (L3→Document)
+        - REFERENCED_IN (L2→Document)
         """
         relations = 0
 
-        if self.linker:
-            relations += self._create_definition_of_via_linker(doc_id, entities, terms)
+        if self.linker and self._is_linker_available():
+            try:
+                linker_relations = self._create_definition_of_via_linker(doc_id, entities, terms)
+                relations += linker_relations
+                logger.info(f"Created {linker_relations} DEFINITION_OF relations via linker")
+            except Exception as e:
+                logger.warning(f"Linker failed: {e}, using name matching fallback")
 
-        definition_entity_names = {e.get('name') for e in entities if e.get('entity_type') == 'definition'}
-        definition_terms = [t for t in terms if t.get('name') in definition_entity_names]
-        if definition_terms:
-            cypher = '''
-            MATCH (e:L2_Entity)
-            MATCH (t:L3_Term)
-            WHERE e.doc_id = $doc_id AND t.source_document_id = $doc_id
-            AND e.entity_type = 'definition' AND e.name = t.name
-            MERGE (e)-[:DEFINED_AS]->(t)
-            RETURN count(*) as cnt
-            '''
-            result = self.neo4j.execute_query(cypher, {'doc_id': doc_id})
-            relations += result[0].get('cnt', 0) if result else 0
+        relations += self._create_definition_of_by_name_matching(doc_id, entities, terms)
+
+        relations += self._create_reference_of_via_linker(doc_id, entities)
 
         if terms:
             cypher = '''
@@ -223,68 +224,170 @@ class L2Importer:
 
         return relations
 
+    def _is_linker_available(self) -> bool:
+        """Check if CrossLayerLinker is available (Milvus connected)."""
+        if not self.linker:
+            return False
+        try:
+            if hasattr(self.linker, 'embedder') and self.linker.embedder.milvus_client:
+                if hasattr(self.linker.embedder.milvus_client, 'collection'):
+                    return self.linker.embedder.milvus_client.collection is not None
+            return False
+        except Exception:
+            return False
+
+    def _create_definition_of_by_name_matching(self, doc_id: str, entities: List[Dict], terms: List[Dict]) -> int:
+        """Create DEFINITION_OF relations by name matching as fallback."""
+        if not entities or not terms:
+            return 0
+
+        entity_names = {e.get('name') for e in entities if e.get('name')}
+        term_names = {t.get('name') for t in terms if t.get('name')}
+        matching_names = entity_names & term_names
+
+        if not matching_names:
+            return 0
+
+        cypher = '''
+        MATCH (e:L2_Entity)
+        MATCH (t:L3_Term)
+        WHERE e.doc_id = $doc_id AND t.source_document_id = $doc_id
+        AND e.name IN $matching_names
+        MERGE (e)-[:DEFINED_AS]->(t)
+        RETURN count(*) as cnt
+        '''
+        result = self.neo4j.execute_query(cypher, {'doc_id': doc_id, 'matching_names': list(matching_names)})
+        count = result[0].get('cnt', 0) if result else 0
+        logger.info(f"Created {count} DEFINITION_OF relations via name matching")
+        return count
+
     def _create_reference_of_via_linker(self, doc_id: str, entities: List[Dict]) -> int:
         """Create REFERENCE_OF (L1→L2) relations using CrossLayerLinker."""
         if not self.linker:
             return 0
+
+        if not self._is_linker_available():
+            logger.warning("Milvus not available, skipping REFERENCE_OF via linker")
+            return 0
+
         relations = 0
+        entity_ids = self._get_l2_entity_ids(doc_id)
+        entity_id_map = {e.get('name', ''): e.get('id', '') for e in entities}
+        for name, new_id in entity_ids.items():
+            if name in entity_id_map:
+                entity_id_map[name] = new_id
+
+        l1_components = self._get_all_l1_components()
+        component_id_map = {c.get('name', ''): c.get('id', '') for c in l1_components}
+
         for entity in entities:
-            l1_components = self.neo4j.search_components(entity.get('name', ''), top_k=3)
-            for comp in l1_components:
-                candidates = [{
-                    'source_id': comp.get('id', ''),
-                    'source_name': comp.get('name', ''),
-                    'source_type': 'Component',
-                    'target_id': entity.get('id', ''),
-                    'target_name': entity.get('name', ''),
-                    'target_type': entity.get('entity_type', 'Entity'),
-                    'score': 0.85,
-                    'layer': 'L2',
-                    'relation_type': 'REFERENCE_OF'
-                }]
-                filtered = self.linker._step2_hard_rule_filter(
-                    candidates, 'Component', 'REFERENCE_OF'
+            entity_name = entity.get('name', '')
+            target_id = entity_id_map.get(entity_name, '')
+            if not target_id:
+                continue
+
+            source_id = component_id_map.get(entity_name, '')
+            if not source_id:
+                continue
+
+            try:
+                candidates = self.linker.run_pipeline(
+                    source_node_id=source_id,
+                    source_name=entity_name,
+                    source_type='Component',
+                    source_layer='L1',
+                    source_context='',
+                    target_layer='L2',
+                    relation_type='REFERENCE_OF'
                 )
-                if filtered and self.linker.llm_judge:
-                    judged = self.linker._step3_llm_judge(filtered, '', 'REFERENCE_OF')
-                    written = self.linker.write_relations(judged, 'REFERENCE_OF')
-                    relations += written
-                elif filtered:
-                    written = self.linker.write_relations(filtered, 'REFERENCE_OF')
-                    relations += written
+                written = self.linker.write_relations(candidates, 'REFERENCE_OF')
+                relations += written
+            except Exception as e:
+                logger.error(f"Reference_of linker failed for {entity_name}: {e}")
+                continue
+
         logger.info(f"Created {relations} REFERENCE_OF relations via linker")
         return relations
+
+    def _get_all_l1_components(self) -> List[Dict]:
+        """Get all L1 components from Neo4j."""
+        cypher = '''
+        MATCH (c:Component)
+        RETURN c.id as id, c.name as name
+        '''
+        try:
+            result = self.neo4j.execute_query(cypher, {})
+            return result if result else []
+        except Exception:
+            return []
 
     def _create_definition_of_via_linker(self, doc_id: str, entities: List[Dict], terms: List[Dict]) -> int:
         """Create DEFINITION_OF (L2→L3) relations using CrossLayerLinker."""
         if not self.linker:
             return 0
+
+        if not self._is_linker_available():
+            logger.warning("Milvus not available, skipping linker path")
+            return 0
+
         relations = 0
         term_dict = {t.get('name', ''): t for t in terms}
+
+        entity_ids = self._get_l2_entity_ids(doc_id)
+        entity_id_map = {e.get('name', ''): e.get('id', '') for e in entities}
+        for name, new_id in entity_ids.items():
+            if name in entity_id_map:
+                entity_id_map[name] = new_id
+
         for entity in entities:
             entity_name = entity.get('name', '')
-            if entity_name in term_dict:
-                term = term_dict[entity_name]
-                candidates = [{
-                    'source_id': entity.get('id', ''),
-                    'source_name': entity_name,
-                    'source_type': entity.get('entity_type', 'Entity'),
-                    'target_id': term.get('id', ''),
-                    'target_name': term.get('name', ''),
-                    'target_type': 'Term',
-                    'score': 0.85,
-                    'layer': 'L3',
-                    'relation_type': 'DEFINITION_OF'
-                }]
-                filtered = self.linker._step2_hard_rule_filter(
-                    candidates, entity.get('entity_type', 'Entity'), 'DEFINITION_OF'
+            if entity_name not in term_dict:
+                continue
+
+            term = term_dict[entity_name]
+            term_ids = self._get_l3_term_ids(doc_id)
+            term_id = term_ids.get(term.get('name', ''), '')
+
+            if not term_id:
+                continue
+
+            source_id = entity_id_map.get(entity_name, '')
+            if not source_id:
+                continue
+
+            try:
+                candidates = self.linker.run_pipeline(
+                    source_node_id=source_id,
+                    source_name=entity_name,
+                    source_type=entity.get('entity_type', 'Entity'),
+                    source_layer='L2',
+                    source_context=entity.get('source_evidence', ''),
+                    target_layer='L3',
+                    relation_type='DEFINITION_OF'
                 )
-                if filtered and self.linker.llm_judge:
-                    judged = self.linker._step3_llm_judge(filtered, '', 'DEFINITION_OF')
-                    written = self.linker.write_relations(judged, 'DEFINITION_OF')
-                    relations += written
-                elif filtered:
-                    written = self.linker.write_relations(filtered, 'DEFINITION_OF')
-                    relations += written
+                written = self.linker.write_relations(candidates, 'DEFINITION_OF')
+                relations += written
+            except Exception as e:
+                logger.error(f"Definition_of linker failed for entity {entity_name}: {e}")
+                continue
+
         logger.info(f"Created {relations} DEFINITION_OF relations via linker")
         return relations
+
+    def _get_l2_entity_ids(self, doc_id: str) -> Dict[str, str]:
+        """Get mapping of L2 entity names to IDs for a document."""
+        cypher = '''
+        MATCH (e:L2_Entity {doc_id: $doc_id})
+        RETURN e.name as name, e.id as id
+        '''
+        result = self.neo4j.execute_query(cypher, {'doc_id': doc_id})
+        return {r.get('name', ''): r.get('id', '') for r in result if r.get('name')}
+
+    def _get_l3_term_ids(self, doc_id: str) -> Dict[str, str]:
+        """Get mapping of L3 term names to IDs for a document."""
+        cypher = '''
+        MATCH (t:L3_Term {source_document_id: $doc_id})
+        RETURN t.name as name, t.id as id
+        '''
+        result = self.neo4j.execute_query(cypher, {'doc_id': doc_id})
+        return {r.get('name', ''): r.get('id', '') for r in result if r.get('name')}

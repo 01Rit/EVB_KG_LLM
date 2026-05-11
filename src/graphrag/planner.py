@@ -158,7 +158,40 @@ class Planner:
             trace['timing']['retrieve_ms'] = int((time.time() - start) * 1000)
             trace['all_components_count'] = len(all_components)
             trace['all_relations_count'] = len(all_relations)
-        
+
+        start = time.time()
+
+        if self.cross_layer_retriever and self.cross_layer_retriever.linker:
+            if self.cross_layer_retriever.should_trigger(evidence_graph, rewritten_intents):
+                try:
+                    cross_layer_graph = self.cross_layer_retriever.retrieve_cross_layer(
+                        battery_model=battery_model,
+                        intents=rewritten_intents
+                    )
+                    if cross_layer_graph and cross_layer_graph.nodes:
+                        existing_ids = {n.id for n in evidence_graph.nodes}
+                        for node in cross_layer_graph.nodes:
+                            if node.id not in existing_ids:
+                                evidence_graph.nodes.append(node)
+                        for edge in cross_layer_graph.edges:
+                            evidence_graph.edges.append(edge)
+                        if debug:
+                            trace['cross_layer_triggered'] = True
+                            trace['cross_layer_nodes_added'] = len(cross_layer_graph.nodes)
+                            trace['cross_layer_edges_added'] = len(cross_layer_graph.edges)
+                    else:
+                        if debug:
+                            trace['cross_layer_triggered'] = True
+                            trace['cross_layer_triggered_but_no_results'] = True
+                except Exception as e:
+                    logger.warning(f"Cross-layer retrieval failed: {e}")
+                    if debug:
+                        trace['cross_layer_error'] = str(e)
+            else:
+                if debug:
+                    trace['cross_layer_triggered'] = False
+                    trace['cross_layer_skip_reason'] = 'graph_sufficient'
+
         if evidence_graph.nodes:
             ranked_evidence = self.ranker.rank(evidence_graph.nodes, query)
             evidence_graph.nodes = ranked_evidence
