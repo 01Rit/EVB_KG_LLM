@@ -37,7 +37,8 @@ class Planner:
         else:
             self.retriever = retriever
 
-        self.feedback = FeedbackLoop(self.retriever, self.ranker, self.generator)
+        self.llm_client = llm_client
+        self.feedback = FeedbackLoop(self.retriever, self.ranker, self.generator, llm_client)
 
         if neo4j_client:
             community_detector = CommunityDetector(neo4j_client, llm_client)
@@ -45,12 +46,19 @@ class Planner:
         else:
             self.global_engine = None
 
-    def _enrich_steps_with_scores(self, steps: list, battery_model: str) -> list:
-        """Enrich steps with scoring data from Neo4j."""
+    def _enrich_steps_with_scores(self, steps: list, battery_model: str, all_components: list = None) -> list:
+        """Enrich steps with scoring data from Neo4j.
+
+        Args:
+            steps: LLM 生成的拆卸步骤
+            battery_model: 电池型号
+            all_components: 从 Neo4j 检索的组件列表（EvidenceNode 或 dict）
+        """
         if not steps or not self._neo4j_client:
             return steps
 
         try:
+            # 从 Neo4j 获取评分数据
             cypher = '''
             MATCH (c:Component {battery_model: $model})
             WHERE c.as_score IS NOT NULL
@@ -63,12 +71,49 @@ class Planner:
             score_map_by_id = {r.get('id', ''): r for r in results if r.get('id')}
             score_map_by_name = {r.get('name', ''): r for r in results if r.get('name')}
 
+            # 建立 evidence_graph 节点映射（用于中英文匹配）
+            node_name_to_scores = {}
+            if all_components:
+                for comp in all_components:
+                    if hasattr(comp, 'name'):
+                        node_name = comp.name
+                    elif isinstance(comp, dict):
+                        node_name = comp.get('name', '')
+                    else:
+                        continue
+                    if node_name:
+                        # 尝试通过 ID 查找对应的 scores
+                        if hasattr(comp, 'id'):
+                            comp_id = comp.id
+                        elif isinstance(comp, dict):
+                            comp_id = comp.get('id', '')
+                        else:
+                            comp_id = ''
+                        if comp_id in score_map_by_id:
+                            node_name_to_scores[node_name] = score_map_by_id[comp_id]
+                        elif node_name in score_map_by_name:
+                            node_name_to_scores[node_name] = score_map_by_name[node_name]
+
             enriched_steps = []
             for step in steps:
                 component = step.get('component', '')
                 scores = score_map_by_id.get(component, {})
                 if not scores:
                     scores = score_map_by_name.get(component, {})
+                if not scores and node_name_to_scores:
+                    # 尝试通过模糊匹配查找 scores
+                    component_lower = component.lower().replace('_', ' ').replace('-', ' ')
+                    for node_name, sc in node_name_to_scores.items():
+                        node_name_lower = node_name.lower().replace('_', ' ').replace('-', ' ')
+                        if component_lower in node_name_lower or node_name_lower in component_lower:
+                            scores = sc
+                            break
+                        # 尝试关键词匹配
+                        component_words = set(component_lower.split('_'))
+                        node_words = set(node_name_lower.split('_'))
+                        if component_words & node_words and len(component_words & node_words) >= 1:
+                            scores = sc
+                            break
                 if scores:
                     full_name = scores.get('name', component)
                     scores_for_merge = {k: v for k, v in scores.items() if k not in ('id', 'name')}
@@ -212,12 +257,12 @@ class Planner:
             trace['timing']['generate_ms'] = int((time.time() - start) * 1000)
         
         start = time.time()
-        final_plan, evidence_graph, iterations = await self.feedback.refine(
-            query, initial_plan, evidence_graph, battery_model, context
+        final_plan, evidence_graph, reasoning_traces = await self.feedback.refine(
+            query, initial_plan, evidence_graph, battery_model, rewritten_intents, context
         )
 
         steps = final_plan.get('steps', [])
-        steps = self._enrich_steps_with_scores(steps, battery_model)
+        steps = self._enrich_steps_with_scores(steps, battery_model, all_components)
         steps = self._enrich_steps_with_remanufacturing(steps, battery_model)
 
         time_estimator = TimeEstimator()
@@ -240,6 +285,11 @@ class Planner:
                 'edges': evidence_graph.edges[:20]
             }
 
+        # 计算最终置信度
+        final_confidence = 0.0
+        if reasoning_traces:
+            final_confidence = reasoning_traces[-1].confidence if reasoning_traces[-1].confidence else 0.0
+
         result = {
             'code': 0,
             'message': 'Success',
@@ -247,7 +297,10 @@ class Planner:
                 'steps': steps,
                 'parallel_batches': parallel_batches,
                 'total_time_seconds': total_time_seconds,
-                'mode': 'local'
+                'mode': 'local',
+                'reasoning_traces': [t.to_dict() for t in reasoning_traces],
+                'total_feedback_iterations': len(reasoning_traces),
+                'final_confidence': final_confidence,
             }
         }
 
@@ -281,7 +334,10 @@ class Planner:
 
 
 def compute_parallel_batches(steps):
-    """调度任务：考虑depends_on依赖 + 资源约束（人类串行，机器人串行）"""
+    """调度任务：考虑depends_on依赖 + 资源约束（人类串行，机器人串行）
+
+    返回 ParallelBatch[] 格式，而非 steps[]
+    """
     if not steps:
         return []
 
@@ -314,4 +370,23 @@ def compute_parallel_batches(steps):
 
         step['duration'] = duration
 
-    return steps
+    # 构建真正的并行批次
+    # 按 start_time 分组，同一时刻开始的任务组成一个批次
+    batches = []
+    batch_map = {}  # start_time -> batch_index
+
+    for step in sorted_steps:
+        st = step.get('start_time', 0)
+        if st not in batch_map:
+            batch_map[st] = len(batches)
+            batches.append({
+                'batch_id': len(batches) + 1,
+                'tasks': [],
+                'start_time': st,
+                'duration': 0
+            })
+        batch_idx = batch_map[st]
+        batches[batch_idx]['tasks'].append(step.get('id'))
+        batches[batch_idx]['duration'] = max(batches[batch_idx]['duration'], step.get('duration', 0))
+
+    return batches

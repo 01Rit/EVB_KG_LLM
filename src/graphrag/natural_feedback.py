@@ -4,6 +4,7 @@ import json
 
 from src.graphrag.retriever import MultiPathRetriever
 from src.graphrag.ranker import EvidenceRanker
+from src.graphrag.web_searcher import WebSearcher
 from src.utils.llm_client import LLMClient
 from src.kg.models import EvidenceGraph
 
@@ -19,6 +20,7 @@ class NaturalLanguageFeedback:
         ("retrieving_web", "正在检索网络资源..."),
         ("ranking", "正在排序证据..."),
         ("generating", "正在生成回答..."),
+        ("reasoning", "正在构建推理链..."),
         ("done", "完成"),
     ]
 
@@ -27,6 +29,7 @@ class NaturalLanguageFeedback:
         self.retriever = retriever
         self.ranker = ranker
         self.llm = llm_client
+        self.web_searcher = WebSearcher()
 
     async def generate_stream(
         self,
@@ -122,8 +125,8 @@ class NaturalLanguageFeedback:
         return list(seen.values())[:top_k]
 
     async def _retrieve_web(self, question: str) -> List[Dict]:
-        """从网络检索"""
-        return []
+        """从网络检索（DuckDuckGo）"""
+        return await self.web_searcher.search(question, top_k=5)
 
     def _rank_evidence(self, evidence: EvidenceGraph, query: str) -> List[Any]:
         """排序证据"""

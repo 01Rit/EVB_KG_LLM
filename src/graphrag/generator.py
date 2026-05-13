@@ -41,24 +41,33 @@ class PlanGenerator:
 2. 最后拆电芯(cells, modules, CMC) 和核心部件
 3. 每一步需要说明依赖的前置步骤（如：必须先拆X才能拆Y）
 
+【关键要求】
+- 部件名称 (component) 必须使用【知识图谱组件列表】中的原始名称，不要自行翻译或简化
+- 如果列表中没有完全匹配的部件，请选择最接近的部件名称
+- 同一拆卸步骤中的多个操作应该分开成多个步骤
+
 请生成拆卸步骤列表，格式如下:
 - 步骤序号 (id)
-- 部件名称 (component) - 只返回部件的简短英文名称，如 "upper_housing_screw"、"upper_housing"、"insulator"、"battery_module" 等
-- 具体操作 (action) - 描述如何拆卸，如 "Unscrew the screws of upper housing"
+- 部件名称 (component) - 使用知识图谱中的原始名称
+- 具体操作 (action) - 描述如何拆卸，如 "拆卸上壳体"
 - 所需工具 (tool) - 列出所需工具
 - 安全等级 (safety_level) - 1-5的数字
 - 依赖步骤 (depends_on) - 哪些步骤必须先完成（只写步骤id）
 - 置信度 (confidence) - 本步骤的置信度 (0-1)
 - 证据IDs (evidence_ids) - 本步骤使用的证据节点ID列表
+- 推理链 (reasoning_chain) - 本步骤的推理过程，包含:
+  - links: 论点列表，每个论点包含:
+    - claim: 论点文本（如"为什么选择这个部件"）
+    - evidence_id: 证据节点ID
+    - evidence_name: 证据名称
+    - evidence_layer: 证据所在层 (1=L1组件, 2=L2文档, 3=L3术语)
+    - evidence_snippet: 证据原文片段
+    - confidence: 本论点置信度 (0-1)
+  - overall_reasoning: 本步骤的综合推理总结
 
-【关键要求】
-- component 必须是简短的部件名称，不要包含动作描述
-- 同一拆卸步骤中的多个操作应该分开成多个步骤
-- 例如："Unscrew screws, then remove housing" 应该分成：
-  1. component="upper_housing_screw", action="Unscrew the screws of upper housing"
-  2. component="upper_housing", action="Remove the upper housing", depends_on=[1]
+请以JSON格式返回，包含steps数组，每个元素包含: id, component, action, tool, safety_level, depends_on, confidence, evidence_ids, reasoning_chain
 
-请以JSON格式返回，包含steps数组，每个元素包含: id, component, action, tool, safety_level, depends_on, confidence, evidence_ids'''
+重要：reasoning_chain.links 中的 evidence_id 必须是来自上述知识图谱中的真实节点ID，不要编造。'''
 
         try:
             result = self.llm.generate_json(prompt, ['steps'])

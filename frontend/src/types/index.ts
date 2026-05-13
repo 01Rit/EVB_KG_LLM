@@ -18,6 +18,13 @@ export interface QueryRequest {
   mode?: 'local' | 'global'
 }
 
+export interface ParallelBatch {
+  batch_id: number
+  tasks: number[]
+  start_time: number
+  duration: number
+}
+
 export interface QueryResponse {
   code: number
   message: string
@@ -28,7 +35,34 @@ export interface QueryResponse {
     trace?: QueryTrace
     total_time_seconds?: number
     parallel_batches?: ParallelBatch[]
+    reasoning_traces?: ReasoningTrace[]
+    total_feedback_iterations?: number
+    final_confidence?: number
   }
+}
+
+export interface ReasoningLink {
+  claim: string
+  evidence_id: string
+  evidence_name: string
+  evidence_layer: 1 | 2 | 3
+  evidence_snippet: string
+  confidence: number
+}
+
+export interface StepReasoningChain {
+  step_id: string
+  links: ReasoningLink[]
+  overall_reasoning: string
+}
+
+export interface ConfidenceInfo {
+  overall: number
+  grade: 'PASS' | 'WARN_CONSISTENCY' | 'FAIL_DEPTH' | 'FAIL_COVERAGE'
+  evidence_coverage: number
+  cross_layer_depth_score: number
+  consistency: number
+  method: string
 }
 
 export interface DisassemblyStep {
@@ -39,6 +73,8 @@ export interface DisassemblyStep {
   tool: string | string[]
   evidence: string[]
   confidence: number
+  reasoning_chain?: StepReasoningChain
+  confidence_info?: ConfidenceInfo
   safety_level?: number
   depends_on?: number[]
   time_seconds: number
@@ -53,11 +89,27 @@ export interface DisassemblyStep {
   assignee?: 'human' | 'robot'
 }
 
-export interface ParallelBatch {
-  batch_id: number
-  tasks: number[]
-  start_time: number
-  duration: number
+export interface ReasoningTrace {
+  query: string
+  iteration: number
+  retrieved_nodes_count: number
+  cross_layer_expansion: {
+    l1_nodes?: number
+    l2_nodes?: number
+    l3_nodes?: number
+    [key: string]: number | undefined
+  }
+  confidence_factors: {
+    evidence_coverage: number
+    cross_layer_depth: number
+    consistency: number
+  }
+  confidence: number
+  reasoning_steps: string[]
+  web_results_count: number
+  missing_evidence: string[]
+  target_depth: number
+  confidence_result: ConfidenceInfo
 }
 
 export interface QueryTrace {

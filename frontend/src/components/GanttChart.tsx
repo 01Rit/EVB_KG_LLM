@@ -5,6 +5,16 @@ interface GanttChartProps {
   parallelBatches?: ParallelBatch[]
 }
 
+function getGradeLabel(grade: string): string {
+  switch (grade) {
+    case 'PASS': return '✓ 通过'
+    case 'WARN_CONSISTENCY': return '⚠ 一致性警告'
+    case 'FAIL_DEPTH': return '✗ 深度不足'
+    case 'FAIL_COVERAGE': return '✗ 证据不足'
+    default: return grade || '未知'
+  }
+}
+
 export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
   if (!steps || steps.length === 0) {
     return (
@@ -19,9 +29,11 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
   // Build stepId -> batch mapping
     const stepToBatch = new Map<number, ParallelBatch>()
     parallelBatches.forEach(batch => {
-      batch.tasks.forEach(taskId => {
-        stepToBatch.set(taskId, batch)
-      })
+      if (batch.tasks) {
+        batch.tasks.forEach(taskId => {
+          stepToBatch.set(taskId, batch)
+        })
+      }
     })
 
     // Calculate total time in minutes
@@ -46,6 +58,10 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <div style={{ width: '16px', height: '16px', background: '#DD8452', borderRadius: '3px' }}></div>
           <span>机器人拆卸</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ width: '16px', height: '16px', background: '#9d174d', borderRadius: '3px' }}></div>
+          <span>★ L3 跨层</span>
         </div>
       </div>
 
@@ -82,6 +98,13 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
             const widthPercent = (durationMinutes / totalTimeMinutes) * 100
             const stepName = step.component_name || step.component
 
+            // 跨层深度判断：reasoning_chain 中是否有 L3 证据
+            const hasL3 = step.reasoning_chain?.links?.some(l => l.evidence_layer === 3)
+            const ci = step.confidence_info
+
+            // 构建 tooltip 内容
+            const tooltipContent = buildTooltipContent(step, durationMinutes, hasL3, ci)
+
             return (
               <div key={step.id} className="gantt-row">
                 <div className="gantt-label" title={stepName}>
@@ -95,7 +118,7 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
                       left: `${leftPercent}%`,
                       width: `${Math.max(widthPercent, 2)}%`
                     }}
-                    title={`${stepName} (${durationMinutes.toFixed(2)}min)`}
+                    data-tooltip={tooltipContent}
                   >
                     {durationMinutes.toFixed(2)}m
                   </div>
@@ -105,6 +128,76 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
           })}
         </div>
       </div>
+
+      {/* 全局 tooltip 样式 */}
+      <style>{`
+        .gantt-bar[data-tooltip] {
+          position: relative;
+          cursor: pointer;
+        }
+        .gantt-bar[data-tooltip]:hover::after {
+          content: attr(data-tooltip);
+          position: absolute;
+          bottom: calc(100% + 8px);
+          left: 50%;
+          transform: translateX(-50%);
+          background: rgba(17, 24, 39, 0.95);
+          color: #f9fafb;
+          padding: 10px 14px;
+          border-radius: 8px;
+          font-size: 12px;
+          white-space: pre-line;
+          z-index: 100;
+          min-width: 220px;
+          max-width: 320px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          line-height: 1.5;
+        }
+      `}</style>
     </div>
   )
+}
+
+function buildTooltipContent(
+  step: DisassemblyStep,
+  durationMinutes: number,
+  hasL3: boolean | undefined,
+  ci: DisassemblyStep['confidence_info']
+): string {
+  const parts: string[] = []
+
+  parts.push(`${step.component_name || step.component}`)
+  parts.push(`时长: ${durationMinutes.toFixed(2)}min`)
+
+  if (step.tool) {
+    const tools = Array.isArray(step.tool) ? step.tool.join(', ') : step.tool
+    parts.push(`工具: ${tools}`)
+  }
+
+  if (step.safety_level) {
+    parts.push(`安全等级: ${step.safety_level}`)
+  }
+
+  if (ci) {
+    parts.push(`置信度: ${ci.overall.toFixed(2)} (${getGradeLabel(ci.grade)})`)
+    parts.push(`  coverage: ${ci.evidence_coverage.toFixed(2)}`)
+    parts.push(`  depth: ${ci.cross_layer_depth_score.toFixed(2)}`)
+    parts.push(`  consistency: ${ci.consistency.toFixed(2)}`)
+  } else if (step.confidence !== undefined) {
+    parts.push(`置信度: ${step.confidence.toFixed(2)}`)
+  }
+
+  if (hasL3) {
+    parts.push(`★ 跨层深度: L1→L2→L3`)
+  }
+
+  if (step.reasoning_chain?.overall_reasoning) {
+    parts.push(`---`)
+    parts.push(step.reasoning_chain.overall_reasoning.slice(0, 100))
+    if (step.reasoning_chain.overall_reasoning.length > 100) {
+      parts.push(`...`)
+    }
+  }
+
+  return parts.join('\n')
 }

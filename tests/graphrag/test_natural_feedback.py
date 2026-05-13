@@ -24,10 +24,11 @@ def test_natural_feedback_import():
 
 def test_progress_stages():
     """Test that progress stages are defined"""
-    assert len(NaturalLanguageFeedback.PROGRESS_STAGES) == 6
+    assert len(NaturalLanguageFeedback.PROGRESS_STAGES) == 7
     stages = [s[0] for s in NaturalLanguageFeedback.PROGRESS_STAGES]
     assert "understanding" in stages
     assert "done" in stages
+    assert "reasoning" in stages
 
 
 def test_generate_sync_returns_dict(feedback):
