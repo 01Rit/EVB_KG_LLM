@@ -78,6 +78,8 @@ confidence = 0.5 * evidence_coverage + 0.3 * cross_layer_depth + 0.2 * consisten
 | Level 1 | `l1_coverage ∈ (0.10, 0.65)` 或 `len(l1_nodes) < 10` | L1→L2 |
 | Level 2 | `l1_coverage ≤ 0.10` **或** 查询含 L3 关键词 | L1→L2→L3 |
 
+> **注意**：阈值 0.65/0.10 为初始值，待收集真实 coverage 分布后调优。
+
 ### 灰色地带 LLM 仲裁
 
 **灰色地带**：`0.10 < l1_coverage < 0.65` 时，调用轻量级 LLM 判断：
@@ -90,6 +92,76 @@ prompt: "分析查询：{query}，已有L1节点{L1_count}个，L2节点{L2_coun
 2 = 需要L1→L2→L3全链路
 只返回数字0、1或2。"
 ```
+
+### Coverage 分布采集（数据驱动阈值调优）
+
+**目的**：通过日志采集真实 coverage 分布，用数据决定 0.10 和 0.65 这两个初始阈值的合理性。
+
+**采集方式**：每次 `evaluate()` 调用时，将以下字段写入结构化日志：
+
+```python
+import structlog
+logger = structlog.get_logger()
+
+async def evaluate(self, evidence, intents):
+    l1_coverage = self._calc_intent_coverage(evidence.l1_nodes, intents)
+    l2_coverage = self._calc_intent_coverage(evidence.l2_nodes, intents)
+    l3_coverage = self._calc_intent_coverage(evidence.l3_nodes, intents)
+    l1_count = len(evidence.l1_nodes)
+
+    depth = self._static_evaluate(l1_coverage, l1_count)  # 不调LLM的静态判断
+
+    # 记录原始 coverage 值，用于事后分析
+    logger.info("depth_evaluation",
+        query_hash=hashlib.md5(query.encode()).hexdigest()[:8],
+        l1_coverage=round(l1_coverage, 3),
+        l2_coverage=round(l2_coverage, 3),
+        l3_coverage=round(l3_coverage, 3),
+        l1_count=l1_count,
+        l2_count=len(evidence.l2_nodes),
+        l3_count=len(evidence.l3_nodes),
+        static_depth=depth,  # 静态初筛结果
+        llm_arbitrated=(0.10 < l1_coverage < 0.65),  # 是否触发了LLM仲裁
+        final_depth=depth,  # 最终决定
+        battery_model=evidence.battery_model or "unknown",
+    )
+
+    return depth
+```
+
+**日志输出示例**（JSON Lines 格式）：
+
+```
+{"event":"depth_evaluation","l1_coverage":0.72,"l2_coverage":0.31,"l3_coverage":0.0,"l1_count":12,"l2_count":4,"l3_count":0,"static_depth":0,"llm_arbitrated":false,"battery_model":"Audi_A3"}
+{"event":"depth_evaluation","l1_coverage":0.23,"l2_coverage":0.0,"l3_coverage":0.0,"l1_count":3,"l2_count":0,"l3_count":0,"static_depth":2,"llm_arbitrated":false,"battery_model":"Tesla_Model_3"}
+{"event":"depth_evaluation","l1_coverage":0.45,"l2_coverage":0.15,"l3_coverage":0.0,"l1_count":7,"l2_count":2,"l3_count":0,"static_depth":1,"llm_arbitrated":true,"battery_model":"BMW_i3"}
+```
+
+**阈值调优方法**（约 2 周后数据分析）：
+
+```python
+# 伪代码：分析日志，确定最优阈值
+import pandas as pd
+import numpy as np
+
+logs = pd.read_json("depth_evaluation_logs.jsonl", lines=True)
+
+# 查看 coverage 分布直方图
+logs["l1_coverage"].hist(bins=50)
+
+# 分析 LLM 仲裁 vs 静态判断不一致的比例
+mismatches = logs[logs["llm_arbitrated"] == True]
+
+# 找到静态判断恰好在边界附近的样本（0.05~0.15 和 0.60~0.70）
+boundary_low = logs[(0.05 < logs["l1_coverage"]) & (logs["l1_coverage"] < 0.15)]
+boundary_high = logs[(0.60 < logs["l1_coverage"]) & (logs["l1_coverage"] < 0.70)]
+
+# 观察这些样本的 LLM 最终决策，调整阈值
+```
+
+**阈值调整规则**：
+- 若大部分 0.10~0.65 的 LLM 仲裁返回 0 或 2 → 扩大灰色地带
+- 若大部分 LLM 仲裁与静态判断一致 → 缩小灰色地带，减少 LLM 调用
 
 ### 实现位置
 
