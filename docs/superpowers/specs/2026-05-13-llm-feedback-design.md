@@ -305,23 +305,61 @@ def _get_l3_nodes(self, l2_id: str, top_k: int) -> list:
     return self.retriever.neo4j.execute(query, {"l2_id": l2_id, "top_k": top_k})
 ```
 
-### 3.3 PlanGenerator 增强
+### 3.3 PlanGenerator 增强 — 结构化推理链
 
-**文件**: `src/graphrag/generator.py`
+**文件**: `src/graphrag/generator.py` + `src/graphrag/structured_reasoning.py`（新增）
 
-改动：prompt 中增加 chain-of-thought 要求，生成 `reasoning_chain` 字段：
+**核心改动**：LLM prompt 要求输出结构化 JSON 推理链，而非自由文本字符串。每个步骤的 `reasoning_chain` 包含多个 `ReasoningLink`，每个 link 绑定具体的 evidence_id。
+
+**新增 `src/graphrag/structured_reasoning.py`**：
+
+```python
+from pydantic import BaseModel
+from typing import List
+
+class ReasoningLink(BaseModel):
+    """推理链中的一个论点"""
+    claim: str           # 论点文本
+    evidence_id: str     # 证据节点ID（如 "L2:doc:Assembly_Guide:12"）
+    evidence_name: str   # 证据名称
+    evidence_layer: int # 1=L1, 2=L2, 3=L3
+    evidence_snippet: str # 证据原文片段
+    confidence: float    # 本论点置信度 0-1
+
+class StepReasoningChain(BaseModel):
+    """一个拆卸步骤的完整推理链"""
+    step_id: str
+    links: List[ReasoningLink]
+    overall_reasoning: str  # 汇总推理文本
+```
+
+**Generator prompt 改动**：
 
 ```python
 prompt = f'''...
 请以JSON格式返回，包含steps数组，每个元素包含:
-id, component, action, tool, safety_level, depends_on, confidence, evidence_ids, reasoning_chain
-
-其中 reasoning_chain 是本步骤的推理过程字符串，描述：
-1. 为什么选择这个部件
-2. 为什么这个顺序是正确的
-3. 证据来源是什么
+id, component, action, tool, safety_level, depends_on, confidence, evidence_ids,
+reasoning_chain: {{
+  "links": [
+    {{
+      "claim": "为什么选择这个部件/这个顺序",
+      "evidence_id": "对应的证据节点ID（来自检索结果）",
+      "evidence_name": "证据名称",
+      "evidence_layer": 2,
+      "evidence_snippet": "证据原文片段",
+      "confidence": 0.9
+    }}
+  ],
+  "overall_reasoning": "本步骤的综合推理总结"
+}}
 '''
 ```
+
+**EvidenceTracer 内置化**：
+
+原有 `EvidenceTracer` 是事后追溯。改为生成时即绑定 evidence_id：
+- `evidence_ids` 字段从 `reasoning_chain.links[].evidence_id` 自动提取
+- 无需二次 trace，直接填充 `Step.evidence_ids`
 
 ### 3.4 DuckDuckGo 联网搜索
 
@@ -372,12 +410,20 @@ async def generate_stream(self, question, use_web_search, context):
 **文件**: `src/api/schemas.py`
 
 ```python
-class ReasoningChainItem(BaseModel):
+class ReasoningLink(BaseModel):
+    """推理链中的一个论点（证据绑定）"""
+    claim: str           # 论点文本
+    evidence_id: str     # 证据节点ID
+    evidence_name: str   # 证据名称
+    evidence_layer: int  # 1=L1, 2=L2, 3=L3
+    evidence_snippet: str # 证据原文片段
+    confidence: float    # 本论点置信度
+
+class StepReasoningChain(BaseModel):
+    """一个拆卸步骤的完整推理链"""
     step_id: str
-    reasoning: str
-    evidence_sources: List[str]
-    confidence_factors: Dict[str, float]
-    cross_layer_depth: int  # 1=L1, 2=L2, 3=L3
+    links: List[ReasoningLink]
+    overall_reasoning: str
 
 class ConfidenceInfo(BaseModel):
     overall: float
@@ -388,7 +434,7 @@ class ConfidenceInfo(BaseModel):
 
 class Step(BaseModel):
     ...
-    reasoning_chain: Optional[List[ReasoningChainItem]] = []
+    reasoning_chain: Optional[StepReasoningChain] = None
     confidence_info: Optional[ConfidenceInfo] = None
 
 class FeedbackResponse(BaseModel):
@@ -408,14 +454,35 @@ class FeedbackResponse(BaseModel):
         "id": "1",
         "component": "upper_housing",
         "confidence": 0.85,
-        "reasoning_chain": [
-          {
-            "step_id": "1",
-            "reasoning": "上壳体是最外层结构，无需前置依赖。证据来源于 L2 文档 'Battery_Assembly_Guide' 中的步骤说明。",
-            "evidence_sources": ["L2:doc:123", "L3:term:456"],
-            "cross_layer_depth": 2
-          }
-        ]
+        "evidence_ids": ["L2:doc:Assembly_Guide:12", "L3:term:torque_spec:uuid"],
+        "reasoning_chain": {
+          "step_id": "1",
+          "links": [
+            {
+              "claim": "上壳体是最外层结构，无需前置依赖",
+              "evidence_id": "L2:doc:Assembly_Guide:12",
+              "evidence_name": "Battery Assembly Guide",
+              "evidence_layer": 2,
+              "evidence_snippet": "上壳体位于最外层，拆卸前无需拆除其他部件...",
+              "confidence": 0.92
+            },
+            {
+              "claim": "需要T20螺丝刀",
+              "evidence_id": "L1:comp:upper_housing:uuid",
+              "evidence_name": "upper_housing",
+              "evidence_layer": 1,
+              "evidence_snippet": "tool_required: T20 screwdriver",
+              "confidence": 0.95
+            }
+          ],
+          "overall_reasoning": "上壳体是拆卸起点，基于L2文档的步骤说明和L1组件属性确认工具和顺序。"
+        },
+        "confidence_info": {
+          "overall": 0.85,
+          "evidence_coverage": 0.9,
+          "cross_layer_depth_score": 0.67,
+          "consistency": 0.8
+        }
       }
     ]
   },
@@ -527,8 +594,9 @@ API Response + SSE流式前端展示
 8. 置信度因子计算方法 `_calc_confidence_factors()`
 
 ### Phase 3: Generator 增强
-9. `PlanGenerator` prompt 增强：要求 reasoning_chain 输出
-10. `EvidenceTracer` 改为内置到生成过程
+9. 新增 `src/graphrag/structured_reasoning.py` — `ReasoningLink` + `StepReasoningChain`
+10. `PlanGenerator` prompt 改为要求 JSON 结构化 reasoning_chain
+11. `EvidenceTracer` 内置化：`evidence_ids` 从 `reasoning_chain.links[].evidence_id` 自动提取
 
 ### Phase 4: API + 前端
 11. `natural_feedback.py` 接入 WebSearcher
