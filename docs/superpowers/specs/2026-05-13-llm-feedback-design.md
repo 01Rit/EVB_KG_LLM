@@ -66,6 +66,84 @@ confidence = 0.5 * evidence_coverage + 0.3 * cross_layer_depth + 0.2 * consisten
 
 ---
 
+## 2.5 动态深度（混合路径 C）
+
+**方案**：静态规则初筛 + LLM 仲裁，仅在边界模糊时调用 LLM
+
+### 深度等级
+
+| 等级 | 条件 | 行为 |
+|------|------|------|
+| Level 0 | `l1_coverage ≥ 0.65` **且** `len(l1_nodes) ≥ 10` | 不跨层，仅 L1 |
+| Level 1 | `l1_coverage ∈ (0.10, 0.65)` 或 `len(l1_nodes) < 10` | L1→L2 |
+| Level 2 | `l1_coverage ≤ 0.10` **或** 查询含 L3 关键词 | L1→L2→L3 |
+
+### 灰色地带 LLM 仲裁
+
+**灰色地带**：`0.10 < l1_coverage < 0.65` 时，调用轻量级 LLM 判断：
+
+```
+prompt: "分析查询：{query}，已有L1节点{L1_count}个，L2节点{L2_count}个。
+判断是否需要深入L3：
+0 = L1证据充足
+1 = 需要L1→L2扩展
+2 = 需要L1→L2→L3全链路
+只返回数字0、1或2。"
+```
+
+### 实现位置
+
+新增 `src/graphrag/depth_evaluator.py`：
+
+```python
+class DepthEvaluator:
+    def __init__(self, llm_client: LLMClient):
+        self.llm = llm_client
+
+    async def evaluate(self, evidence: EvidenceGraph, intents: List[str]) -> int:
+        l1_coverage = self._calc_intent_coverage(evidence.l1_nodes, intents)
+        l1_count = len(evidence.l1_nodes)
+
+        # 明确充足
+        if l1_coverage >= 0.65 and l1_count >= 10:
+            return 0
+
+        # 明确不足 → 全链路
+        if l1_coverage <= 0.10:
+            return 2
+
+        # 灰色地带 → LLM仲裁
+        return await self._llm_arbitrate(evidence, intents)
+
+    async def _llm_arbitrate(self, evidence, intents) -> int:
+        prompt = f"""分析查询意图覆盖情况...
+        已有L1节点{len(evidence.l1_nodes)}个，L2节点{len(evidence.l2_nodes)}个。
+        返回0(L1足)、1(L1→L2)、2(L1→L2→L3)："""
+        result = self.llm.generate(prompt).strip()
+        return int(result) if result in ['0','1','2'] else 1
+```
+
+### 与 FeedbackLoop 的集成
+
+```python
+async def refine(self, ...):
+    for iteration in range(self.max_iterations):
+        trace = ReasoningTrace(query=query, iteration=iteration)
+
+        # 动态深度评估（每次迭代）
+        depth = await self.depth_evaluator.evaluate(evidence, intents)
+        trace.target_depth = depth
+
+        # 按深度执行跨层检索
+        if depth >= 1:
+            l1_nodes, l2_nodes = await self._retrieve_l1_l2(missing_evidence)
+        if depth >= 2:
+            l3_nodes = await self._retrieve_l3(l2_nodes)
+        ...
+```
+
+---
+
 ## 3. 模块改动
 
 ### 3.1 FeedbackLoop 重构
@@ -101,35 +179,58 @@ class FeedbackLoop:
         return initial_plan, evidence, traces
 ```
 
-### 3.2 跨层检索新增
+### 3.2 跨层检索（动态深度）
 
-**文件**: `src/graphrag/feedback.py` 新增方法
+**文件**: `src/graphrag/feedback.py` 新增/重构方法
 
 ```python
-async def _retrieve_cross_layer(self, missing_items: list[str], trace: ReasoningTrace) -> list:
-    """每次反馈迭代都进行 L1→L2→L3 跨层检索"""
+async def _retrieve_cross_layer(self, missing_items: list[str], trace: ReasoningTrace, depth: int) -> list:
+    """按动态深度进行跨层检索"""
     all_nodes = []
 
     for item in missing_items:
         # L1: Component
         l1_nodes = self.retriever._retrieve_components(item, top_k=5)
         trace.cross_layer_expansion["l1_nodes"].extend(l1_nodes)
-
-        # L1→L2: REFERENCE_OF
-        for l1 in l1_nodes:
-            l2_nodes = self.retriever.get_l2_references(l1.id, top_k=3)
-            trace.cross_layer_expansion["l2_nodes"].extend(l2_nodes)
-
-            # L2→L3: DEFINITION_OF
-            for l2 in l2_nodes:
-                l3_nodes = self.retriever.get_l3_definitions(l2.id, top_k=2)
-                trace.cross_layer_expansion["l3_nodes"].extend(l3_nodes)
-
         all_nodes.extend(l1_nodes)
-        all_nodes.extend(l2_nodes)
-        all_nodes.extend(l3_nodes)
+
+        if depth >= 1:
+            # L1→L2: REFERENCE_OF
+            for l1 in l1_nodes:
+                l2_nodes = self._get_l2_nodes(l1.id, top_k=3)
+                trace.cross_layer_expansion["l2_nodes"].extend(l2_nodes)
+                all_nodes.extend(l2_nodes)
+
+                if depth >= 2:
+                    # L2→L3: DEFINITION_OF
+                    for l2 in l2_nodes:
+                        l3_nodes = self._get_l3_nodes(l2.id, top_k=2)
+                        trace.cross_layer_expansion["l3_nodes"].extend(l3_nodes)
+                        all_nodes.extend(l3_nodes)
 
     return all_nodes
+
+def _get_l2_nodes(self, l1_id: str, top_k: int) -> list:
+    """通过Neo4j查询L1→L2的REFERENCE_OF关系"""
+    query = """
+    MATCH (c)-[r:REFERENCE_OF]->(e:L2_Entity)
+    WHERE c.id = $l1_id
+    RETURN e.id as id, e.name as name, e.entity_type as entity_type,
+           e.battery_model as battery_model, e.source_evidence as source_evidence
+    LIMIT $top_k
+    """
+    return self.retriever.neo4j.execute(query, {"l1_id": l1_id, "top_k": top_k})
+
+def _get_l3_nodes(self, l2_id: str, top_k: int) -> list:
+    """通过Neo4j查询L2→L3的DEFINITION_OF关系"""
+    query = """
+    MATCH (e:L2_Entity)-[r:DEFINITION_OF]->(t:L3_Term)
+    WHERE e.id = $l2_id
+    RETURN t.id as id, t.name as name, t.definition as definition,
+           t.source_evidence as source_evidence
+    LIMIT $top_k
+    """
+    return self.retriever.neo4j.execute(query, {"l2_id": l2_id, "top_k": top_k})
 ```
 
 ### 3.3 PlanGenerator 增强
@@ -343,23 +444,25 @@ API Response + SSE流式前端展示
 
 ### Phase 1: 核心基础设施
 1. 新增 `src/graphrag/reasoning_trace.py` — `ReasoningTrace` 类
-2. 新增 `src/graphrag/web_searcher.py` — `WebSearcher` + DuckDuckGo
-3. Schema 改动：Pydantic model 新增字段
+2. 新增 `src/graphrag/depth_evaluator.py` — `DepthEvaluator` 类（动态深度评估器）
+3. 新增 `src/graphrag/web_searcher.py` — `WebSearcher` + DuckDuckGo
+4. Schema 改动：`src/api/schemas.py` Pydantic model 新增字段
 
 ### Phase 2: FeedbackLoop 重构
-4. `FeedbackLoop` 重构：引入 `ReasoningTrace`
-5. 新增 `_retrieve_cross_layer()` 方法（L1→L2→L3 全链路）
-6. 置信度因子计算方法
+5. `FeedbackLoop` 重构：引入 `ReasoningTrace` 和 `DepthEvaluator`
+6. 新增 `_retrieve_cross_layer()` 方法（按深度 L1→L2→L3）
+7. 新增 `_get_l2_nodes()` / `_get_l3_nodes()` Neo4j 查询方法
+8. 置信度因子计算方法 `_calc_confidence_factors()`
 
 ### Phase 3: Generator 增强
-7. `PlanGenerator` prompt 增强：要求 reasoning_chain 输出
-8. `EvidenceTracer` 改为内置到生成过程
+9. `PlanGenerator` prompt 增强：要求 reasoning_chain 输出
+10. `EvidenceTracer` 改为内置到生成过程
 
 ### Phase 4: API + 前端
-9. `natural_feedback.py` 接入 WebSearcher
-10. SSE 流增加 reasoning_trace 事件
-11. 新增 `ReasoningChainPanel.tsx`
-12. `GanttChart.tsx` 增强展示
+11. `natural_feedback.py` 接入 WebSearcher
+12. SSE 流增加 reasoning_trace 事件
+13. 新增 `frontend/src/components/ReasoningChainPanel.tsx`
+14. `GanttChart.tsx` 增强展示
 
 ---
 
