@@ -184,9 +184,12 @@ class FeedbackLoop:
 
         # cross_layer_depth: 各步骤最高层归一化平均 (L1=0.33, L2=0.67, L3=1.0)
         # 从 evidence 节点的层分布估算
-        l1_count = len(evidence.l1_nodes)
-        l2_count = len(evidence.l2_nodes)
-        l3_count = len(evidence.l3_nodes)
+        l1_nodes = [n for n in evidence.nodes if n.node_type in ("Component", "L1_Component")]
+        l2_nodes = [n for n in evidence.nodes if n.node_type in ("L2_Entity", "L2_Document", "Document", "Entity")]
+        l3_nodes = [n for n in evidence.nodes if n.node_type in ("L3_Term", "Term")]
+        l1_count = len(l1_nodes)
+        l2_count = len(l2_nodes)
+        l3_count = len(l3_nodes)
         total = l1_count + l2_count + l3_count
         if total > 0:
             cross_layer_depth = (l1_count * 0.33 + l2_count * 0.67 + l3_count * 1.0) / total

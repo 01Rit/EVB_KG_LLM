@@ -277,7 +277,7 @@ class Planner:
 
         if debug:
             trace['timing']['feedback_ms'] = int((time.time() - start) * 1000)
-            trace['iteration_count'] = iterations
+            trace['iteration_count'] = len(reasoning_traces)
             trace['final_evidence_count'] = len(evidence_graph.nodes)
             trace['timing']['total_ms'] = int((time.time() - trace['start_time']) * 1000)
             trace['evidence_graph'] = {
@@ -306,6 +306,9 @@ class Planner:
 
         if debug:
             result['data']['trace'] = trace
+            if initial_plan.get('error'):
+                result['data']['generator_error'] = initial_plan.get('error')
+                result['data']['generator_raw'] = initial_plan.get('raw', '')[:500]
 
         return result
 

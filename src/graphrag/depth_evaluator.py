@@ -38,13 +38,18 @@ class DepthEvaluator:
         query: str = "",
     ) -> int:
         """评估需要的跨层检索深度"""
-        l1_count = len(evidence.l1_nodes)
-        l2_count = len(evidence.l2_nodes)
-        l3_count = len(evidence.l3_nodes)
+        # 根据 node_type 过滤各层节点
+        l1_nodes = [n for n in evidence.nodes if n.node_type in ("Component", "L1_Component")]
+        l2_nodes = [n for n in evidence.nodes if n.node_type in ("L2_Entity", "L2_Document", "Document", "Entity")]
+        l3_nodes = [n for n in evidence.nodes if n.node_type in ("L3_Term", "Term")]
 
-        l1_coverage = self._calc_intent_coverage(evidence.l1_nodes, intents)
-        l2_coverage = self._calc_intent_coverage(evidence.l2_nodes, intents)
-        l3_coverage = self._calc_intent_coverage(evidence.l3_nodes, intents)
+        l1_count = len(l1_nodes)
+        l2_count = len(l2_nodes)
+        l3_count = len(l3_nodes)
+
+        l1_coverage = self._calc_intent_coverage(l1_nodes, intents)
+        l2_coverage = self._calc_intent_coverage(l2_nodes, intents)
+        l3_coverage = self._calc_intent_coverage(l3_nodes, intents)
 
         # 静态初筛（不走LLM）
         depth = self._static_evaluate(l1_coverage, l1_count)

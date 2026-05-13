@@ -71,7 +71,10 @@ class PlanGenerator:
 
         try:
             result = self.llm.generate_json(prompt, ['steps'])
-            logger.info(f'Generated plan with {len(result.get("steps", []))} steps')
+            step_count = len(result.get('steps', []))
+            logger.info(f'Generated plan with {step_count} steps')
+            if result.get('error'):
+                logger.warning(f'Generator error: {result.get("error")}, raw: {str(result.get("raw", ""))[:200]}')
             return result
         except Exception as e:
             logger.error(f'Plan generation failed: {e}')

@@ -1,5 +1,8 @@
 from pydantic_settings import BaseSettings
+from dotenv import load_dotenv
 import os
+
+load_dotenv()
 
 
 class Settings(BaseSettings):
@@ -37,6 +40,7 @@ def load_settings():
         openai_api_key=os.getenv('OPENAI_API_KEY', ''),
         openai_base_url=os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
         llm_model=os.getenv('LLM_MODEL', 'gpt-4o'),
+        max_tokens=int(os.getenv('MAX_TOKENS', '2000')),
         log_level=os.getenv('LOG_LEVEL', 'INFO'),
     )
 
