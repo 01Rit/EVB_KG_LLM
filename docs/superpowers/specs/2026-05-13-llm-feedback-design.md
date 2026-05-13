@@ -54,15 +54,61 @@ class ReasoningTrace:
     missing_evidence: List[str]          # 本轮发现的缺失证据
 ```
 
-### 置信度公式
+### 置信度公式（层次化判断）
 
-```
-confidence = 0.5 * evidence_coverage + 0.3 * cross_layer_depth + 0.2 * consistency
+不使用加权求和，采用**门槛逻辑**——每个因子是"及格线"而非"贡献因子"。
+
+```python
+def compute_confidence(factors: dict) -> dict:
+    """
+    层次化置信度判断。
+    三个因子是递进门槛，而非可公度的加权项。
+    """
+    coverage = factors["evidence_coverage"]  # 0.0 ~ 1.0
+    depth = factors["cross_layer_depth"]    # 0.0 ~ 1.0
+    consistency = factors["consistency"]    # 0.0 ~ 1.0
+
+    # 第一关：证据覆盖率门槛
+    if coverage < 0.3:
+        overall = 0.25
+        grade = "FAIL_COVERAGE"
+    # 第二关：跨层深度门槛
+    elif depth < 0.33:
+        overall = 0.45
+        grade = "FAIL_DEPTH"
+    # 第三关：一致性门槛
+    elif consistency < 0.5:
+        overall = 0.65
+        grade = "WARN_CONSISTENCY"
+    else:
+        overall = 0.85
+        grade = "PASS"
+
+    return {
+        "overall": overall,
+        "grade": grade,
+        "evidence_coverage": coverage,
+        "cross_layer_depth": depth,
+        "consistency": consistency,
+        "method": "hierarchical_gates"
+    }
 ```
 
+**三级门槛**：
+
+| 门槛 | 条件 | 分数 | 含义 |
+|------|------|------|------|
+| FAIL_COVERAGE | coverage < 0.3 | 0.25 | 证据严重不足，不及格 |
+| FAIL_DEPTH | coverage ≥ 0.3 但 depth < 0.33 | 0.45 | 只有 L1，无跨层，不及格 |
+| WARN_CONSISTENCY | 前两关通过但 consistency < 0.5 | 0.65 | 有矛盾，可接受但需注意 |
+| PASS | 三关全过 | 0.85 | 全部及格 |
+
+> **数据驱动调优**：上述阈值（0.3 / 0.33 / 0.5）均为初始猜测，待收集人工标注数据后调优。日志字段 `confidence_evaluation` 记录原始分数。
+
+**因子定义**：
 - **evidence_coverage**: plan 中有 evidence 支撑的步骤 / 总步骤数
-- **cross_layer_depth**: 每步按触及的最高层归一化计分（L1=0.33, L2=0.67, L3=1.0），取所有步骤平均
-- **consistency**: 步骤间依赖关系与 evidence 图谱的一致性（LLM 评估）
+- **cross_layer_depth**: 各步骤最高层归一化平均（L1=0.33, L2=0.67, L3=1.0）
+- **consistency**: 步骤依赖关系与 evidence 图谱的匹配度（LLM 评估，0~1）
 
 ---
 
@@ -427,10 +473,11 @@ class StepReasoningChain(BaseModel):
 
 class ConfidenceInfo(BaseModel):
     overall: float
+    grade: str  # "PASS" | "WARN_CONSISTENCY" | "FAIL_DEPTH" | "FAIL_COVERAGE"
     evidence_coverage: float
     cross_layer_depth_score: float
     consistency: float
-    method: str = "0.5*coverage + 0.3*depth + 0.2*consistency"
+    method: str = "hierarchical_gates"
 
 class Step(BaseModel):
     ...
@@ -479,9 +526,11 @@ class FeedbackResponse(BaseModel):
         },
         "confidence_info": {
           "overall": 0.85,
+          "grade": "PASS",
           "evidence_coverage": 0.9,
           "cross_layer_depth_score": 0.67,
-          "consistency": 0.8
+          "consistency": 0.8,
+          "method": "hierarchical_gates"
         }
       }
     ]
