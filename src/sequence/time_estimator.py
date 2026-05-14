@@ -48,8 +48,28 @@ class TimeEstimator:
         return int(base_time)
 
     def estimate_from_component(self, component: Dict) -> int:
-        time_score = component.get('time_score', 1.5)
-        return self.calculate_time_from_score(time_score)
+        # 优先使用数据库中的 time_score 字段
+        time_score = component.get('time_score')
+        if time_score is not None:
+            return self.calculate_time_from_score(time_score)
+
+        # 无 time_score 时，基于组件属性差异化估算
+        safety_level = component.get('safety_level', 1)
+        tools = component.get('tool_required', [])
+        as_score = component.get('as_score', 0.5) or 0.5
+
+        # 基础时间：30-55s，AS分数越高（更适合机器人）略快
+        base_time = int(85 * (1.0 - as_score * 0.3))
+
+        # 安全等级加成：每级 +8s
+        safety_overhead = max(0, (safety_level - 1)) * 8
+
+        # 工具加成：每件工具 +5s
+        tool_count = len(tools) if tools else 0
+        tool_overhead = tool_count * 5
+
+        total = base_time + safety_overhead + tool_overhead
+        return max(15, total)
 
     def estimate_sequence_time(self, components: List[Dict]) -> Dict:
         total_time = 0
