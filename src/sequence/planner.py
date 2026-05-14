@@ -45,6 +45,10 @@ class SequencePlanner:
         cycles = self.cycle_detector.detect_cycles()
         cycle_count = len(cycles)
 
+        logger.info(f"Components: {len(components)}, Cycles detected: {cycle_count}")
+        logger.info(f"Component IDs: {[c.get('id') or c.get('name') for c in components]}")
+        logger.info(f"Cycles: {cycles}")
+
         if cycles:
             broken_graph = self.cycle_detector.break_cycles()
         else:
@@ -52,6 +56,18 @@ class SequencePlanner:
 
         self.topological_sort.set_graph(broken_graph)
         sorted_ids = self.topological_sort.sort()
+
+        # 检查重复
+        if len(sorted_ids) != len(set(sorted_ids)):
+            logger.error(f"DUPLICATE NODES DETECTED in sorted_ids: {[x for x in sorted_ids if sorted_ids.count(x) > 1]}")
+            # 去重但保持顺序
+            seen = set()
+            sorted_ids = [x for x in sorted_ids if not (x in seen or seen.add(x))]
+            logger.info(f"After deduplication: {sorted_ids}")
+
+        logger.info(f"Graph nodes: {list(broken_graph.nodes())}")
+        logger.info(f"Graph edges: {list(broken_graph.edges())}")
+        logger.info(f"Sorted IDs (topological sort): {sorted_ids}")
 
         isolated_nodes = [n for n in broken_graph.nodes() if broken_graph.in_degree(n) == 0 and broken_graph.out_degree(n) == 0]
         if isolated_nodes:
@@ -121,7 +137,7 @@ class SequencePlanner:
 
         cypher = '''
         MATCH (c:Component {battery_model: $model})
-        RETURN c.id as id, c.name as name, c.tool_required as tool_required,
+        RETURN DISTINCT c.id as id, c.name as name, c.tool_required as tool_required,
                c.safety_level as safety_level, c.precedence as precedence,
                c.as_score as as_score, c.h_weighted_score as h_score,
                c.s_weighted_score as s_score, c.human_loss as human_loss,
