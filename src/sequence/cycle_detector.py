@@ -32,14 +32,15 @@ class CycleDetector:
                 continue
             dependencies = comp.get('precedence', []) or comp.get('dependencies', [])
 
+            # precedence 语义：dep 必须在 comp_id 之前拆卸
+            # 所以边方向是 dep -> comp_id
             for dep in dependencies:
-                # 跳过空字符串和指向不存在节点的边
                 if not dep or not dep.strip():
                     continue
                 if dep not in valid_node_ids:
                     # 跳过指向不存在节点的边
                     continue
-                graph.add_edge(comp_id, dep)
+                graph.add_edge(dep, comp_id)
 
         self.graph = graph
         return graph
