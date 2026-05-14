@@ -2,7 +2,6 @@ import axios from 'axios'
 import type {
   QueryRequest,
   QueryResponse,
-  SequenceResponse,
   Config,
   GraphNode,
   GraphEdge,
@@ -37,8 +36,13 @@ export const batteryApi = {
 }
 
 export const sequenceApi = {
-  getSequence: (batteryModel: string) =>
-    api.get<SequenceResponse>(`/disassembly/sequence/${batteryModel}`),
+  getSequence: (battery_model: string) => {
+    return fetch('/api/v1/disassembly/sequence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ battery_model }),
+    }).then(res => res.json())
+  },
 }
 
 export const configApi = {

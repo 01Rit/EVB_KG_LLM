@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { queryApi, batteryApi } from '../api/client'
-import type { QueryResponse, DisassemblyStep } from '../types'
+import { queryApi, batteryApi, sequenceApi } from '../api/client'
+import type { QueryTrace, DisassemblyStep, ParallelBatch } from '../types'
 import { GanttChart } from '../components/GanttChart'
+import { SequenceSection } from '../components/SequenceSection'
 
 const REASONING_STEPS = [
   { id: 'rewrite', label: '查询重写' },
@@ -114,7 +115,12 @@ export function SequencePlanner() {
   const [batteryModels, setBatteryModels] = useState<Array<{ model: string; L1_components: number; L2_entities: number; L3_terms: number }>>([])
   const [showDropdown, setShowDropdown] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<QueryResponse | null>(null)
+  const [topoResult, setTopoResult] = useState<any | null>(null)
+  const [llmResult, setLlmResult] = useState<{
+    steps?: DisassemblyStep[]
+    parallel_batches?: ParallelBatch[]
+    trace?: QueryTrace
+  } | null>(null)
   const [debug, setDebug] = useState(false)
   const [progress, setProgress] = useState<ProgressState>({
     currentStep: 0,
@@ -169,50 +175,34 @@ export function SequencePlanner() {
     if (!batteryModel.trim()) return
 
     setLoading(true)
-    setProgress({ currentStep: 0, status: 'processing', message: '开始查询重写...' })
-    setResult(null)
+    setTopoResult(null)
+    setLlmResult(null)
 
     try {
-      setProgress({ currentStep: 1, status: 'processing', message: '正在进行查询重写...', timing: {} })
-      const res = await queryApi.ask({
-        battery_model: batteryModel,
-        context: [],
-        debug,
-      })
-
-      const trace = res.data.data?.trace
-      if (trace?.timing) {
-        setProgress({
-          currentStep: 5,
-          status: 'success',
-          message: '推理完成！',
-          timing: trace.timing,
+      // Call sequence API (topological sort) and plan API (LLM) in parallel
+      const [topoRes, llmRes] = await Promise.all([
+        sequenceApi.getSequence(batteryModel),
+        queryApi.ask({
+          battery_model: batteryModel,
+          context: [],
+          debug,
         })
-      } else {
-        setProgress({ currentStep: 5, status: 'success', message: '推理完成！' })
-      }
-      setResult(res.data)
+      ])
+
+      setTopoResult(topoRes)
+      setLlmResult(llmRes.data.data)
+
+      setProgress({
+        currentStep: 5,
+        status: 'success',
+        message: '推理完成！',
+      })
     } catch (error) {
       console.error('Query failed:', error)
       setProgress(prev => ({ ...prev, status: 'error', message: '推理失败' }))
     } finally {
       setLoading(false)
     }
-  }
-
-  const steps: DisassemblyStep[] = result?.data?.steps || []
-
-  const getAssigneeColor = (assignee?: string) => {
-    if (assignee === 'robot') return '#8b5cf6'
-    if (assignee === 'human') return '#10b981'
-    return '#6b7280'
-  }
-
-  const getScoreColor = (score?: number) => {
-    if (score === undefined) return '#6b7280'
-    if (score >= 0.7) return '#dc2626'
-    if (score >= 0.5) return '#f59e0b'
-    return '#22c55e'
   }
 
   return (
@@ -303,147 +293,62 @@ export function SequencePlanner() {
         </div>
       </div>
 
-      {result && (
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <h2>拆卸序列 ({steps.length} 步)</h2>
-            <span style={{ color: '#666' }}>模式: {result.data?.mode || 'local'}</span>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {steps.map((step, idx) => (
-              <div
-                key={step.id || idx}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '15px',
-                  padding: '15px',
-                  backgroundColor: '#fafafa',
-                  borderRadius: '8px',
-                  border: '1px solid #eee',
-                }}
-              >
-                <div
-                  style={{
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '50%',
-                    backgroundColor: '#3b82f6',
-                    color: 'white',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontWeight: 'bold',
-                    flexShrink: 0,
-                  }}
-                >
-                  {step.id || idx + 1}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
-                    {step.component_name || step.component}
-                    {step.component_name && step.component_name !== step.component && (
-                      <span style={{ fontWeight: 'normal', color: '#888', marginLeft: '8px' }}>
-                        ({step.component})
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ color: '#666', fontSize: '14px' }}>
-                    {step.action}
-                  </div>
-                  {step.tool && (Array.isArray(step.tool) ? step.tool.join(', ') : step.tool) && (
-                    <div style={{ marginTop: '5px', fontSize: '13px', color: '#888' }}>
-                      工具: {Array.isArray(step.tool) ? step.tool.join(', ') : step.tool}
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' }}>
-                  {step.confidence !== undefined && (
-                    <span style={{ fontSize: '13px', color: '#22c55e' }}>
-                      置信度: {(step.confidence * 100).toFixed(0)}%
-                    </span>
-                  )}
-                  {step.as_score !== undefined && (
-                    <span
-                      style={{
-                        fontSize: '12px',
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        backgroundColor: getScoreColor(step.as_score),
-                        color: 'white',
-                      }}
-                    >
-                      AS: {step.as_score.toFixed(3)}
-                    </span>
-                  )}
-                  {step.h_score !== undefined && (
-                    <span style={{ fontSize: '12px', color: '#3b82f6' }}>
-                      H: {step.h_score.toFixed(3)}
-                    </span>
-                  )}
-                  {step.s_score !== undefined && (
-                    <span style={{ fontSize: '12px', color: '#f97316' }}>
-                      S: {step.s_score.toFixed(3)}
-                    </span>
-                  )}
-                  {(step.human_loss !== undefined || step.robot_loss !== undefined) && (
-                    <span style={{ fontSize: '11px', color: '#6b7280' }}>
-                      损失: H{step.human_loss?.toFixed(1)}/R{step.robot_loss?.toFixed(1)}
-                    </span>
-                  )}
-                  {step.assignee !== undefined && (
-                    <span
-                      style={{
-                        fontSize: '12px',
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        backgroundColor: getAssigneeColor(step.assignee),
-                        color: 'white',
-                      }}
-                    >
-                      {step.assignee === 'robot' ? '机器人' : '人工'}
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {result && result.data?.steps && result.data.steps.length > 0 && (
-            <GanttChart
-              steps={result.data.steps}
-              parallelBatches={result.data.parallel_batches || []}
+      {topoResult || llmResult ? (
+        <div>
+          {topoResult && topoResult.data && topoResult.data.steps && topoResult.data.steps.length > 0 && (
+            <SequenceSection
+              title="拓扑排序序列"
+              subtitle="确定性 · 基于 precedence 规则"
+              badge="topo"
+              steps={topoResult.data.steps}
+              showReasoningChain={false}
             />
           )}
 
-          {debug && result.data?.trace && (
-            <div style={{ marginTop: '20px' }}>
+          {llmResult && llmResult.steps && llmResult.steps.length > 0 && (
+            <SequenceSection
+              title="LLM 生成序列"
+              subtitle="推理链 · 置信度评估"
+              badge="llm"
+              steps={llmResult.steps}
+              showReasoningChain={true}
+            />
+          )}
+
+          {llmResult && llmResult.steps && llmResult.steps.length > 0 && (
+            <GanttChart
+              steps={llmResult.steps}
+              parallelBatches={llmResult.parallel_batches || []}
+            />
+          )}
+
+          {debug && llmResult?.trace && (
+            <div className="card" style={{ marginTop: '20px' }}>
               <h3>调试信息</h3>
               <div style={{ backgroundColor: '#f5f5f5', padding: '15px', borderRadius: '8px', fontSize: '13px', fontFamily: 'monospace' }}>
-                <p><strong>重写查询:</strong> {Array.isArray(result.data.trace.rewritten_queries) ? result.data.trace.rewritten_queries.join(', ') : '-'}</p>
-                <p><strong>检索节点数:</strong> {result.data.trace.retrieval_nodes || '-'}</p>
-                <p><strong>总组件数:</strong> {result.data.trace.all_components_count || '-'}</p>
-                <p><strong>总关系数:</strong> {result.data.trace.all_relations_count || '-'}</p>
-                {result.data.trace.timing && (
+                <p><strong>重写查询:</strong> {Array.isArray(llmResult.trace.rewritten_queries) ? llmResult.trace.rewritten_queries.join(', ') : '-'}</p>
+                <p><strong>检索节点数:</strong> {llmResult.trace.retrieval_nodes || '-'}</p>
+                <p><strong>总组件数:</strong> {llmResult.trace.all_components_count || '-'}</p>
+                <p><strong>总关系数:</strong> {llmResult.trace.all_relations_count || '-'}</p>
+                {llmResult.trace.timing && (
                   <>
-                    <p><strong>查询重写:</strong> {result.data.trace.timing.rewrite_ms}ms</p>
-                    <p><strong>检索:</strong> {result.data.trace.timing.retrieve_ms}ms</p>
-                    <p><strong>生成:</strong> {result.data.trace.timing.generate_ms}ms</p>
-                    <p><strong>反馈:</strong> {result.data.trace.timing.feedback_ms}ms</p>
-                    <p><strong>总计:</strong> {result.data.trace.timing.total_ms}ms</p>
+                    <p><strong>查询重写:</strong> {llmResult.trace.timing.rewrite_ms}ms</p>
+                    <p><strong>检索:</strong> {llmResult.trace.timing.retrieve_ms}ms</p>
+                    <p><strong>生成:</strong> {llmResult.trace.timing.generate_ms}ms</p>
+                    <p><strong>反馈:</strong> {llmResult.trace.timing.feedback_ms}ms</p>
+                    <p><strong>总计:</strong> {llmResult.trace.timing.total_ms}ms</p>
                   </>
                 )}
-                {result.data.trace.iteration_count !== undefined && (
-                  <p><strong>迭代次数:</strong> {result.data.trace.iteration_count}</p>
+                {llmResult.trace.iteration_count !== undefined && (
+                  <p><strong>迭代次数:</strong> {llmResult.trace.iteration_count}</p>
                 )}
               </div>
             </div>
           )}
         </div>
-      )}
+      ) : null}
 
-      {progress.status === 'idle' && !result && !loading && (
+      {progress.status === 'idle' && !topoResult && !llmResult && !loading && (
         <div className="card" style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
           输入电池型号并点击"生成序列"开始规划
         </div>
