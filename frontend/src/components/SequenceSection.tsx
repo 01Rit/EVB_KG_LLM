@@ -20,7 +20,7 @@ export function SequenceSection({
   // 构建 component -> 同组其他零件 的映射
   const parallelLabelMap = new Map<string, string>()
   if (parallelGroups) {
-    parallelGroups.forEach((group, idx) => {
+    parallelGroups.forEach((group) => {
       if (group.length > 1) {
         group.forEach(comp => {
           const others = group.filter(c => c !== comp).join(', ')
