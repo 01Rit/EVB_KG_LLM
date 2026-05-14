@@ -1,56 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import { MarkdownRenderer } from '../components/MarkdownRenderer'
-import { CollapsibleSource } from '../components/CollapsibleSource'
-
-interface ParsedContent {
-  type: 'text' | 'source'
-  content: string
-  source?: {
-    type: string
-    name: string
-    snippet?: string
-  }
-}
-
-function parseSources(content: string): ParsedContent[] {
-  const parts: ParsedContent[] = []
-  const regex = /【来源：([^】]+)】/g
-  let lastIndex = 0
-  let match
-
-  while ((match = regex.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({
-        type: 'text',
-        content: content.slice(lastIndex, match.index)
-      })
-    }
-
-    const sourceStr = match[1]
-    const colonIndex = sourceStr.indexOf(':')
-    if (colonIndex > 0) {
-      parts.push({
-        type: 'source',
-        content: '',
-        source: {
-          type: sourceStr.slice(0, colonIndex),
-          name: sourceStr.slice(colonIndex + 1)
-        }
-      })
-    }
-
-    lastIndex = match.index + match[0].length
-  }
-
-  if (lastIndex < content.length) {
-    parts.push({
-      type: 'text',
-      content: content.slice(lastIndex)
-    })
-  }
-
-  return parts
-}
 
 const CONTEXT_OPTIONS = [
   '室温环境',

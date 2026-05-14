@@ -1,19 +1,16 @@
 // frontend/src/components/SequenceSection.tsx
-import { DisassemblyStep, ParallelBatch } from '../types'
+import { DisassemblyStep } from '../types'
 import { StepCard } from './StepCard'
 
 interface SequenceSectionProps {
-  title: string
-  subtitle: string
+  title?: string
+  subtitle?: string
   badge: 'topo' | 'llm'
   steps: DisassemblyStep[]
   showReasoningChain: boolean
-  parallelBatches?: ParallelBatch[]
 }
 
 export function SequenceSection({
-  title,
-  subtitle,
   badge,
   steps,
   showReasoningChain,
@@ -34,7 +31,6 @@ export function SequenceSection({
         }}>
           {badge === 'topo' ? '🔵 拓扑排序' : '🟡 LLM 生成'}
         </span>
-        <span style={{ color: '#6b7280', fontSize: '13px' }}>{subtitle}</span>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
