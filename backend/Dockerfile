@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+LABEL version="1.22"
+LABEL description="动力电池拆卸知识图谱推理系统"
+
 WORKDIR /app
 
 COPY ../requirements.txt .
