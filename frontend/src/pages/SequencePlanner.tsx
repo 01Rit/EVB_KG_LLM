@@ -192,6 +192,22 @@ export function SequencePlanner() {
       setTopoResult(topoRes)
       setLlmResult(llmRes.data.data)
 
+      // 将 LLM 的拆卸时间合并到拓扑排序序列中
+      if (topoRes && topoRes.data && topoRes.data.steps && llmRes.data.data && llmRes.data.data.steps) {
+        const llmSteps = llmRes.data.data.steps
+        const llmTimeMap = new Map<string, number>()
+        for (const step of llmSteps) {
+          const name = step.component_name || step.component || ''
+          if (name) llmTimeMap.set(name, step.time_seconds)
+        }
+        for (const step of topoRes.data.steps) {
+          const name = step.component_name || step.component || ''
+          if (llmTimeMap.has(name)) {
+            step.time_seconds = llmTimeMap.get(name)
+          }
+        }
+      }
+
       setProgress({
         currentStep: 5,
         status: 'success',

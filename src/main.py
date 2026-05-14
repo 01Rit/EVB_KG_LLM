@@ -17,7 +17,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-app = FastAPI(title='动力电池拆卸知识图谱推理系统', version='1.22')
+app = FastAPI(title='动力电池拆卸知识图谱推理系统', version='1.23')
 
 app.add_middleware(
     CORSMiddleware,
