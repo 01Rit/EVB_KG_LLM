@@ -6,6 +6,7 @@ import { ReasoningChainPanel } from './ReasoningChainPanel'
 interface StepCardProps {
   step: DisassemblyStep
   showReasoningChain?: boolean
+  parallelLabel?: string
 }
 
 function getGradeLabel(grade: string): string {
@@ -28,7 +29,7 @@ function getGradeColor(grade: string): string {
   }
 }
 
-export function StepCard({ step, showReasoningChain = false }: StepCardProps) {
+export function StepCard({ step, showReasoningChain = false, parallelLabel = '' }: StepCardProps) {
   const [isReasoningExpanded, setIsReasoningExpanded] = useState(false)
 
   const assigneeColor = step.assignee === 'robot' ? '#8b5cf6' : '#10b981'
@@ -62,6 +63,11 @@ export function StepCard({ step, showReasoningChain = false }: StepCardProps) {
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
           {step.component_name || step.component}
+          {parallelLabel && (
+            <span style={{ fontWeight: 'normal', color: '#7c3aed', marginLeft: '8px', fontSize: '13px' }}>
+              {parallelLabel}
+            </span>
+          )}
         </div>
         <div style={{ color: '#666', fontSize: '14px', marginBottom: '8px' }}>
           {step.action}

@@ -8,13 +8,28 @@ interface SequenceSectionProps {
   badge: 'topo' | 'llm'
   steps: DisassemblyStep[]
   showReasoningChain: boolean
+  parallelGroups?: string[][]
 }
 
 export function SequenceSection({
   badge,
   steps,
   showReasoningChain,
+  parallelGroups,
 }: SequenceSectionProps) {
+  // 构建 component -> 同组其他零件 的映射
+  const parallelLabelMap = new Map<string, string>()
+  if (parallelGroups) {
+    parallelGroups.forEach((group, idx) => {
+      if (group.length > 1) {
+        group.forEach(comp => {
+          const others = group.filter(c => c !== comp).join(', ')
+          parallelLabelMap.set(comp, `(可并行: ${others})`)
+        })
+      }
+    })
+  }
+
   const badgeStyle = badge === 'topo'
     ? { background: '#dbeafe', color: '#1d4ed8' }
     : { background: '#fef3c7', color: '#92400e' }
@@ -39,6 +54,7 @@ export function SequenceSection({
             key={step.id || idx}
             step={step}
             showReasoningChain={showReasoningChain}
+            parallelLabel={parallelLabelMap.get(step.component_name || step.component) || ''}
           />
         ))}
       </div>
