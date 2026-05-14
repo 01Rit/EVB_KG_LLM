@@ -159,6 +159,20 @@ class SequencePlanner:
 
     def _parse_components_with_relations(self, results: List[Dict],
                                         relations: List[Dict]) -> List[Dict]:
+        # 收集所有有效的组件标识符（id 和 name 都是组件可被引用的方式）
+        valid_ids = set()
+        name_to_id = {}
+        for r in results:
+            r_id = r.get('id', '')
+            r_name = r.get('name', '')
+            if r_id:
+                valid_ids.add(r_id)
+            if r_name:
+                valid_ids.add(r_name)
+                if r_id:
+                    name_to_id[r_name] = r_id
+
+        # 构建依赖映射（head 组件名 -> [tail 组件名, ...]）
         dep_map = {}
         for rel in relations:
             head = rel.get('head', '')
@@ -170,20 +184,40 @@ class SequencePlanner:
 
         components = []
         for r in results:
+            comp_id = r.get('id', '')
+            name = r.get('name', '')
+
             precedence = []
             if r.get('precedence'):
                 try:
                     precedence = ast.literal_eval(r['precedence']) if isinstance(r['precedence'], str) else r['precedence']
                 except (ValueError, SyntaxError):
-                    logger.warning(f"Failed to parse precedence for component {r.get('id')}: {r.get('precedence')}")
+                    logger.warning(f"Failed to parse precedence for component {comp_id}: {r.get('precedence')}")
                     precedence = []
 
-            name = r.get('name', '')
             rel_deps = dep_map.get(name, [])
-            all_deps = list(set(precedence + rel_deps))
+
+            # 标准化依赖引用：将名称引用转换为对应的组件ID
+            all_deps_normalized = set()
+            for dep in (precedence + rel_deps):
+                if not dep:
+                    continue
+                # 优先使用UUID（如果dep是已知的名称，映射到ID）
+                if dep in name_to_id:
+                    all_deps_normalized.add(name_to_id[dep])
+                elif dep in valid_ids:
+                    # dep已经是ID或其他有效标识符
+                    all_deps_normalized.add(dep)
+                else:
+                    # 不在已知组件中，仍保留（可能是外部引用）
+                    all_deps_normalized.add(dep)
+
+            all_deps = list(all_deps_normalized)
+
+            logger.info(f"Component {name} (id={comp_id}): precedence={precedence}, rel_deps={rel_deps}, normalized_deps={all_deps}")
 
             components.append({
-                'id': r.get('id', ''),
+                'id': comp_id,
                 'name': name,
                 'tool_required': r.get('tool_required', []),
                 'safety_level': r.get('safety_level', 1),

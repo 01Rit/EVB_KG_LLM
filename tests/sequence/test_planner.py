@@ -51,7 +51,8 @@ def test_parse_components_with_relates():
 
     upper_housing = next((c for c in result if c['name'] == 'Upper Housing'), None)
     assert upper_housing is not None
-    assert 'Insulator' in upper_housing['dependencies']
+    # 依赖引用被标准化为组件ID（名称 -> ID 转换）
+    assert 'insulator' in upper_housing['dependencies']
 
 
 def test_isolated_node_resolution():

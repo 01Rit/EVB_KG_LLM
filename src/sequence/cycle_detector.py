@@ -12,11 +12,11 @@ class CycleDetector:
     def build_graph(self, components: List[Dict]) -> nx.DiGraph:
         graph = nx.DiGraph()
 
-        # 首先收集所有有效的节点ID
+        # 收集所有有效的节点ID（使用组件ID作为图中的节点标识符）
         valid_node_ids = set()
         for comp in components:
             comp_id = comp.get('id') or comp.get('name', '')
-            if comp_id and comp_id.strip():  # 过滤空字符串
+            if comp_id and comp_id.strip():
                 valid_node_ids.add(comp_id)
 
         # 添加节点
