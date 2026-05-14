@@ -312,13 +312,21 @@ export function SequencePlanner() {
       {topoResult || llmResult ? (
         <div>
           {topoResult && topoResult.data && topoResult.data.steps && topoResult.data.steps.length > 0 && (
-            <SequenceSection
-              title="拓扑排序序列"
-              subtitle="确定性 · 基于 precedence 规则"
-              badge="topo"
-              steps={topoResult.data.steps}
-              showReasoningChain={false}
-            />
+            <>
+              <SequenceSection
+                title="拓扑排序序列"
+                subtitle="确定性 · 基于 precedence 规则"
+                badge="topo"
+                steps={topoResult.data.steps}
+                showReasoningChain={false}
+                parallelGroups={topoResult.data.parallel_groups}
+              />
+
+              <GanttChart
+                steps={topoResult.data.steps}
+                parallelBatches={[]}
+              />
+            </>
           )}
 
           {llmResult && llmResult.steps && llmResult.steps.length > 0 && (
