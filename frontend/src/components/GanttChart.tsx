@@ -123,7 +123,7 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
 
             return (
               <div key={step.id} className="gantt-row" style={{
-                background: batch ? BATCH_COLORS[(batch.batch_id - 1) % BATCH_COLORS.length] : 'transparent'
+                background: 'transparent'
               }}>
                 <div className="gantt-label" title={stepName}>
                   {batch && (
