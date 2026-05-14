@@ -1,9 +1,26 @@
-import { ReasoningTrace } from '../types'
+import { ReasoningTrace, ReasoningLink } from '../types'
+
+interface StepReasoningChain {
+  step_id: string
+  links: ReasoningLink[]
+  overall_reasoning: string
+}
+
+interface ConfidenceInfo {
+  overall: number
+  grade: string
+  evidence_coverage: number
+  cross_layer_depth_score: number
+  consistency: number
+  method: string
+}
 
 interface ReasoningChainPanelProps {
-  reasoningTraces: ReasoningTrace[]
-  totalIterations: number
-  finalConfidence: number
+  reasoningTraces?: ReasoningTrace[]
+  totalIterations?: number
+  finalConfidence?: number
+  stepReasoningChain?: StepReasoningChain
+  stepConfidenceInfo?: ConfidenceInfo
 }
 
 function getGradeLabel(grade: string): string {
@@ -24,6 +41,77 @@ function getGradeColor(grade: string): string {
     case 'FAIL_COVERAGE': return '#ef4444'
     default: return '#6b7280'
   }
+}
+
+function renderStepReasoningChain(chain: StepReasoningChain, info?: ConfidenceInfo) {
+  return (
+    <div style={{ padding: '12px', backgroundColor: '#fffbeb', borderRadius: '8px' }}>
+      {info && (
+        <div style={{ marginBottom: '12px' }}>
+          <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
+            综合置信度
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ flex: 1, height: '6px', background: '#e5e7eb', borderRadius: '3px' }}>
+              <div style={{
+                width: `${info.overall * 100}%`,
+                height: '100%',
+                background: info.overall >= 0.8 ? '#22c55e' : info.overall >= 0.6 ? '#f59e0b' : '#ef4444',
+                borderRadius: '3px'
+              }} />
+            </div>
+            <span style={{ fontSize: '12px', fontWeight: 600 }}>
+              {info.overall.toFixed(2)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginBottom: '12px' }}>
+        {chain.links.map((link, idx) => (
+          <div key={idx} style={{
+            background: 'white',
+            border: '1px solid #e5e7eb',
+            borderRadius: '6px',
+            padding: '10px',
+            marginBottom: '8px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+              <span style={{
+                padding: '2px 6px',
+                borderRadius: '4px',
+                fontSize: '11px',
+                fontWeight: 600,
+                background: link.evidence_layer === 1 ? '#dbeafe' : link.evidence_layer === 2 ? '#fef3c7' : '#fce7f3',
+                color: link.evidence_layer === 1 ? '#1d4ed8' : link.evidence_layer === 2 ? '#92400e' : '#9d174d'
+              }}>
+                L{link.evidence_layer}
+              </span>
+              <span style={{ fontSize: '13px', color: '#333' }}>{link.claim}</span>
+              <span style={{ marginLeft: 'auto', fontSize: '12px', color: '#22c55e', fontWeight: 600 }}>
+                {link.confidence.toFixed(2)}
+              </span>
+            </div>
+            <div style={{ fontSize: '12px', color: '#666', background: '#f9f9f9', padding: '6px', borderRadius: '4px' }}>
+              证据: {link.evidence_snippet?.slice(0, 100)}...
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {chain.overall_reasoning && (
+        <div style={{
+          fontSize: '13px',
+          color: '#555',
+          fontStyle: 'italic',
+          paddingTop: '8px',
+          borderTop: '1px dashed #ddd'
+        }}>
+          综合推理：{chain.overall_reasoning}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function DepthBadge({ depth }: { depth: number }) {
@@ -70,8 +158,15 @@ function ConfidenceBar({ value }: { value: number }) {
 export function ReasoningChainPanel({
   reasoningTraces,
   totalIterations,
-  finalConfidence
+  finalConfidence,
+  stepReasoningChain,
+  stepConfidenceInfo
 }: ReasoningChainPanelProps) {
+  // If we have single step reasoning chain, render it
+  if (stepReasoningChain) {
+    return renderStepReasoningChain(stepReasoningChain, stepConfidenceInfo)
+  }
+
   if (!reasoningTraces || reasoningTraces.length === 0) {
     return (
       <div style={{
@@ -102,7 +197,7 @@ export function ReasoningChainPanel({
         </div>
         <div>
           <div style={{ color: '#6b7280', fontSize: '11px', marginBottom: '4px' }}>最终置信度</div>
-          <ConfidenceBar value={finalConfidence} />
+          <ConfidenceBar value={finalConfidence ?? 0} />
         </div>
       </div>
 
