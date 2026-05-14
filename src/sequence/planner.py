@@ -96,6 +96,7 @@ class SequencePlanner:
             time = self.time_estimator.estimate_from_component(comp)
             step_data = {
                 'step': step_num,
+                'id': step_num,  # 新增：兼容 DisassemblyStep
                 'component': comp_id,
                 'component_name': comp.get('name', comp_id),
                 'time_seconds': time,

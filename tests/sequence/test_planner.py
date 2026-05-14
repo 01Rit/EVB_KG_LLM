@@ -94,3 +94,18 @@ def test_isolated_node_resolution():
 
     step_names = [s['component_name'] for s in result.steps]
     assert 'Cooling Pipe' in step_names
+
+
+def test_topo_sort_steps_have_id():
+    """Test that topological sort steps include id field"""
+    planner = SequencePlanner()
+    components = [
+        {'id': 'A', 'name': 'Cover', 'precedence': []},
+        {'id': 'B', 'name': 'Screw', 'precedence': ['A']},
+    ]
+    result = planner.plan('test-model', components)
+
+    assert len(result.steps) == 2
+    for i, step in enumerate(result.steps, 1):
+        assert 'id' in step, f"Step should have id field: {step}"
+        assert step['id'] == i, f"Step id should be {i}, got: {step['id']}"
