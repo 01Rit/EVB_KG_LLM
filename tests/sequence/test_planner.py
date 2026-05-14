@@ -50,9 +50,34 @@ def test_parse_components_with_relates():
     result = planner._parse_components_with_relations(components_data, relations_data)
 
     upper_housing = next((c for c in result if c['name'] == 'Upper Housing'), None)
+    insulator = next((c for c in result if c['name'] == 'Insulator'), None)
     assert upper_housing is not None
+    assert insulator is not None
     # 依赖引用被标准化为组件ID（名称 -> ID 转换）
-    assert 'insulator' in upper_housing['dependencies']
+    # head -> tail 表示 head 必须在 tail 之前拆卸，所以 tail 依赖 head
+    assert 'upper_housing' in insulator['dependencies']
+
+
+def test_parallel_disassembly_with_relations():
+    """测试关系解析：冷却板和冷却管都依赖BMC，它们应该可并行拆卸"""
+    planner = SequencePlanner()
+    components_data = [
+        {'id': 'bmc', 'name': 'BMC', 'precedence': [], 'tool_required': [], 'safety_level': 1},
+        {'id': 'cooling_pipe', 'name': '冷却管', 'precedence': [], 'tool_required': [], 'safety_level': 1},
+        {'id': 'cooling_plate', 'name': '冷却板', 'precedence': [], 'tool_required': [], 'safety_level': 1},
+    ]
+    relations_data = [
+        {'head': 'BMC', 'tail': '冷却管', 'relation': '必须先于...拆卸'},
+        {'head': 'BMC', 'tail': '冷却板', 'relation': '必须先于...拆卸'},
+    ]
+    result = planner._parse_components_with_relations(components_data, relations_data)
+
+    # 验证冷却管和冷却板的依赖是 BMC
+    cooling_pipe = next(c for c in result if c['name'] == '冷却管')
+    cooling_plate = next(c for c in result if c['name'] == '冷却板')
+
+    assert 'bmc' in cooling_pipe['dependencies'], f"冷却管应依赖BMC，实际: {cooling_pipe['dependencies']}"
+    assert 'bmc' in cooling_plate['dependencies'], f"冷却板应依赖BMC，实际: {cooling_plate['dependencies']}"
 
 
 def test_isolated_node_resolution():

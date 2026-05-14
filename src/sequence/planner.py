@@ -172,15 +172,17 @@ class SequencePlanner:
                 if r_id:
                     name_to_id[r_name] = r_id
 
-        # 构建依赖映射（head 组件名 -> [tail 组件名, ...]）
+        # 构建依赖映射（tail 组件名 -> [head 组件名, ...]）
+        # 因为关系 head -> tail 表示 head 必须在 tail 之前拆卸
+        # 所以 tail 依赖 head
         dep_map = {}
         for rel in relations:
             head = rel.get('head', '')
             tail = rel.get('tail', '')
             if head and tail:
-                if head not in dep_map:
-                    dep_map[head] = []
-                dep_map[head].append(tail)
+                if tail not in dep_map:
+                    dep_map[tail] = []
+                dep_map[tail].append(head)
 
         components = []
         for r in results:
