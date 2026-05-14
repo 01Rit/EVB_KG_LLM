@@ -75,6 +75,8 @@ body {
   border-bottom: 1px solid #e5e7eb;
   background: #f9fafb;
   min-width: 0;
+  height: 34px;
+  line-height: 34px;
 }
 .gantt-label-col {
   width: 150px;
@@ -85,12 +87,16 @@ body {
   flex: 1;
   min-width: 0;
   position: relative;
+  padding-left: 8px;
 }
 .time-marker {
   min-width: 80px;
   padding: 8px;
   font-size: 12px;
   color: #666;
+}
+.gantt-body {
+  /* 确保在 header 下方开始 */
 }
 .gantt-row {
   display: flex;
@@ -111,6 +117,7 @@ body {
 .gantt-bar-container {
   flex: 1;
   padding: 8px 0;
+  padding-left: 8px;
   min-width: 0;
   position: relative;
 }

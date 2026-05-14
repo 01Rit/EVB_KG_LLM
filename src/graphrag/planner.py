@@ -116,7 +116,8 @@ class Planner:
                             break
                 if scores:
                     full_name = scores.get('name', component)
-                    scores_for_merge = {k: v for k, v in scores.items() if k not in ('id', 'name')}
+                    scores_for_merge = {k: v for k, v in scores.items()
+                                        if k not in ('id', 'name') and v is not None}
                     step = {**step, **scores_for_merge, 'component_name': full_name}
                 else:
                     step['component_name'] = component
@@ -349,15 +350,23 @@ def compute_parallel_batches(steps):
     human_time = 0
     robot_time = 0
 
+    logger.info(f"compute_parallel_batches: scheduling {len(sorted_steps)} steps")
     for step in sorted_steps:
         duration = step.get('time_seconds', 0)
-        assignee = step.get('assignee', 'human')
+        assignee = step.get('assignee') or 'human'
         deps = step.get('depends_on', [])
+
+        step_name = step.get('component_name') or step.get('component', '')
+        logger.info(f"  step id={step.get('id')} name={step_name} "
+                     f"assignee={assignee} duration={duration}s deps={deps}")
 
         # 计算依赖完成时间
         dep_end_time = 0
         for dep_id in deps:
-            dep_step = next((s for s in sorted_steps if s.get('id') == dep_id), None)
+            dep_step = next(
+                (s for s in sorted_steps if str(s.get('id', '')) == str(dep_id)),
+                None
+            )
             if dep_step:
                 dep_end = dep_step.get('start_time', 0) + dep_step.get('time_seconds', 0)
                 dep_end_time = max(dep_end_time, dep_end)
@@ -372,6 +381,8 @@ def compute_parallel_batches(steps):
             human_time = start_time + duration
 
         step['duration'] = duration
+        logger.info(f"    -> start_time={step['start_time']}s "
+                     f"human_time={human_time}s robot_time={robot_time}s")
 
     # 构建真正的并行批次
     # 按 start_time 分组，同一时刻开始的任务组成一个批次
@@ -391,5 +402,9 @@ def compute_parallel_batches(steps):
         batch_idx = batch_map[st]
         batches[batch_idx]['tasks'].append(step.get('id'))
         batches[batch_idx]['duration'] = max(batches[batch_idx]['duration'], step.get('duration', 0))
+
+    logger.info(f"compute_parallel_batches: {len(batches)} batches from {len(sorted_steps)} steps")
+    for b in batches:
+        logger.info(f"  batch {b['batch_id']}: {len(b['tasks'])} tasks at {b['start_time']}s")
 
     return batches

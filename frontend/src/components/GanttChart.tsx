@@ -1,5 +1,7 @@
 import { DisassemblyStep, ParallelBatch } from '../types'
 
+const BATCH_COLORS = ['#e8f5e9', '#e3f2fd', '#fff3e0', '#f3e5f5', '#e0f7fa', '#fbe9e7', '#f1f8e9', '#ede7f6']
+
 interface GanttChartProps {
   steps: DisassemblyStep[]
   parallelBatches?: ParallelBatch[]
@@ -59,10 +61,6 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
           <div style={{ width: '16px', height: '16px', background: '#DD8452', borderRadius: '3px' }}></div>
           <span>机器人拆卸</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <div style={{ width: '16px', height: '16px', background: '#9d174d', borderRadius: '3px' }}></div>
-          <span>★ L3 跨层</span>
-        </div>
       </div>
 
       {/* 甘特图主体 */}
@@ -78,7 +76,6 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
                 style={{
                   position: 'absolute',
                   left: `${marker.percent}%`,
-                  transform: 'translateX(-50%)'
                 }}
               >
                 {marker.label}min
@@ -86,6 +83,26 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
             ))}
           </div>
         </div>
+
+        {/* 并行批次分组提示 */}
+        {parallelBatches.length > 1 && (
+          <div className="gantt-batch-info" style={{
+            display: 'flex', gap: '6px', flexWrap: 'wrap', padding: '6px 8px',
+            fontSize: '11px', color: '#666', borderBottom: '1px solid #e5e7eb', background: '#fafafa'
+          }}>
+            <span style={{ fontWeight: 500 }}>并行批次:</span>
+            {parallelBatches.map(b => (
+              <span key={b.batch_id} style={{
+                display: 'inline-flex', alignItems: 'center', gap: '3px',
+                padding: '1px 6px', borderRadius: '3px',
+                background: BATCH_COLORS[(b.batch_id - 1) % BATCH_COLORS.length],
+                fontSize: '11px'
+              }}>
+                Batch {b.batch_id} ({b.tasks.length}件, {(b.duration / 60).toFixed(1)}m)
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* 任务行 - 每行一个任务 */}
         <div className="gantt-body">
@@ -98,16 +115,25 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
             const widthPercent = (durationMinutes / totalTimeMinutes) * 100
             const stepName = step.component_name || step.component
 
-            // 跨层深度判断：reasoning_chain 中是否有 L3 证据
-            const hasL3 = step.reasoning_chain?.links?.some(l => l.evidence_layer === 3)
             const ci = step.confidence_info
+            const batch = stepToBatch.get(step.id)
 
             // 构建 tooltip 内容
-            const tooltipContent = buildTooltipContent(step, durationMinutes, hasL3, ci)
+            const tooltipContent = buildTooltipContent(step, durationMinutes, ci)
 
             return (
-              <div key={step.id} className="gantt-row">
+              <div key={step.id} className="gantt-row" style={{
+                background: batch ? BATCH_COLORS[(batch.batch_id - 1) % BATCH_COLORS.length] : 'transparent'
+              }}>
                 <div className="gantt-label" title={stepName}>
+                  {batch && (
+                    <span style={{
+                      display: 'inline-block', fontSize: '10px', fontWeight: 600,
+                      color: '#666', marginRight: '4px'
+                    }}>
+                      B{batch.batch_id}
+                    </span>
+                  )}
                   {stepName}
                 </div>
                 <div className="gantt-bar-container" style={{ position: 'relative' }}>
@@ -120,7 +146,7 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
                     }}
                     data-tooltip={tooltipContent}
                   >
-                    {durationMinutes.toFixed(2)}m
+                    {durationMinutes.toFixed(1)}m
                   </div>
                 </div>
               </div>
@@ -161,7 +187,6 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
 function buildTooltipContent(
   step: DisassemblyStep,
   durationMinutes: number,
-  hasL3: boolean | undefined,
   ci: DisassemblyStep['confidence_info']
 ): string {
   const parts: string[] = []
@@ -185,10 +210,6 @@ function buildTooltipContent(
     parts.push(`  consistency: ${ci.consistency.toFixed(2)}`)
   } else if (step.confidence !== undefined) {
     parts.push(`置信度: ${step.confidence.toFixed(2)}`)
-  }
-
-  if (hasL3) {
-    parts.push(`★ 跨层深度: L1→L2→L3`)
   }
 
   if (step.reasoning_chain?.overall_reasoning) {

@@ -1,11 +1,11 @@
 version: '3.8'
 
-# 动力电池拆卸知识图谱推理系统 v1.22
+# 动力电池拆卸知识图谱推理系统 v1.24
 
 services:
   frontend:
     build: ./frontend
-    image: kg-frontend:1.22
+    image: kg-frontend:1.24
     ports:
       - "9333:3000"
     depends_on:
@@ -18,8 +18,8 @@ services:
       context: .
       dockerfile: backend/Dockerfile
       labels:
-        version: "1.22"
-    image: kg-backend:1.22
+        version: "1.24"
+    image: kg-backend:1.24
     ports:
       - "50060:8000"
     volumes:

@@ -54,9 +54,9 @@ class TimeEstimator:
             return self.calculate_time_from_score(time_score)
 
         # 无 time_score 时，基于组件属性差异化估算
-        safety_level = component.get('safety_level', 1)
-        tools = component.get('tool_required', [])
-        as_score = component.get('as_score', 0.5) or 0.5
+        safety_level = component.get('safety_level') or 1
+        tools = component.get('tool_required') or []
+        as_score = component.get('as_score') or 0.5
 
         # 基础时间：30-55s，AS分数越高（更适合机器人）略快
         base_time = int(85 * (1.0 - as_score * 0.3))
