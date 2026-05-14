@@ -79,8 +79,9 @@ class GraphRequest(BaseModel):
 async def create_sequence(request: SequenceRequest):
     from src.sequence.planner import SequencePlanner
 
-    planner = SequencePlanner()
-    result = planner.plan(request.battery_model, request.components)
+    planner = SequencePlanner(neo4j_client)
+    components = request.components if request.components else None
+    result = planner.plan(request.battery_model, components)
 
     return {'code': 0, 'data': result.model_dump()}
 

@@ -69,7 +69,18 @@
       "WebFetch(domain:github.com)",
       "Bash(gh api *)",
       "Bash(docker exec one-api *)",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(findstr \":8000\")",
+      "Bash(findstr \"LISTENING\")",
+      "Bash(findstr \":8\")",
+      "Bash(netsh interface *)",
+      "Bash(netsh int *)",
+      "Bash(docker rm *)",
+      "Bash(docker run *)",
+      "Bash(docker stop *)",
+      "Bash(docker exec final414-backend-1 *)",
+      "Bash(docker exec final414-neo4j-1 *)",
+      "Bash(npx tsc *)"
     ]
   }
 }

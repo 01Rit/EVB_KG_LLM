@@ -15,7 +15,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     ports:
-      - "8000:8000"
+      - "50060:8000"
     volumes:
       - ./config.yaml:/app/config.yaml:ro
     depends_on:

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>双序列展示方案对比</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 20px; }
+        h1 { text-align: center; margin-bottom: 30px; color: #333; }
+        h2 { margin: 20px 0 15px; color: #444; border-bottom: 2px solid #ddd; padding-bottom: 8px; }
+        .compare-table { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; max-width: 1400px; margin: 0 auto; }
+        .option { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .option-title { font-size: 18px; font-weight: 600; color: #3b82f6; margin-bottom: 15px; }
+        .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-left: 8px; }
+        .badge-topo { background: #dbeafe; color: #1d4ed8; }
+        .badge-llm { background: #fef3c7; color: #92400e; }
+        .card { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+        .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+        .step-num { width: 28px; height: 28px; background: #3b82f6; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; flex-shrink: 0; }
+        .step-num.topo { background: #6366f1; }
+        .step-num.llm { background: #f59e0b; }
+        .component { font-weight: 600; color: #333; }
+        .action { font-size: 13px; color: #666; margin: 4px 0; }
+        .meta { display: flex; gap: 8px; font-size: 12px; color: #888; margin-top: 6px; flex-wrap: wrap; }
+        .meta span { background: #e5e7eb; padding: 2px 8px; border-radius: 4px; }
+        .expand-btn { background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; margin-top: 8px; }
+        .expand-btn:hover { background: #2563eb; }
+        .reasoning-panel { background: #fffbeb; border: 1px solid #fbbf24; border-radius: 8px; padding: 12px; margin-top: 10px; display: none; }
+        .reasoning-panel.show { display: block; }
+        .reasoning-title { font-size: 13px; font-weight: 600; color: #92400e; margin-bottom: 8px; }
+        .reasoning-link { background: white; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; margin-bottom: 8px; }
+        .reasoning-link-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .layer-badge { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .layer-L1 { background: #dbeafe; color: #1d4ed8; }
+        .layer-L2 { background: #fef3c7; color: #92400e; }
+        .layer-L3 { background: #fce7f3; color: #9d174d; }
+        .confidence { font-size: 12px; color: #22c55e; font-weight: 600; }
+        .claim { font-size: 13px; color: #333; margin-bottom: 4px; }
+        .snippet { font-size: 12px; color: #666; background: #f9f9f9; padding: 6px; border-radius: 4px; margin-top: 4px; }
+        .overall { font-size: 13px; color: #555; font-style: italic; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #ddd; }
+        .confidence-bar { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+        .confidence-bar-inner { flex: 1; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; }
+        .confidence-bar-fill { height: 100%; background: #22c55e; }
+        .confidence-value { font-size: 12px; font-weight: 600; color: #22c55e; min-width: 36px; }
+        .grade { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+        .grade-pass { background: #dcfce7; color: #166534; }
+        .grade-warn { background: #fef3c7; color: #92400e; }
+        .grade-fail { background: #fee2e2; color: #dc2626; }
+        .arrow-down { text-align: center; font-size: 24px; color: #888; margin: 20px 0; }
+        .stats { display: flex; gap: 16px; background: #f3f4f6; padding: 12px; border-radius: 8px; margin-bottom: 15px; }
+        .stat { text-align: center; }
+        .stat-value { font-size: 20px; font-weight: 700; color: #333; }
+        .stat-label { font-size: 11px; color: #666; }
+        .sequence-label { font-size: 14px; font-weight: 600; color: #555; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    </style>
+</head>
+<body>
+    <h1>拆卸序列展示方案</h1>
+
+    <div class="compare-table">
+        <!-- 方案A: 上下堆叠 -->
+        <div class="option">
+            <div class="option-title">方案A: 上下堆叠（推荐）</div>
+            <p style="font-size: 13px; color: #666; margin-bottom: 15px;">
+                拓扑排序序列在上，LLM序列在下。两张卡片垂直排列，清晰区分两种方法。
+            </p>
+
+            <div class="sequence-label">
+                <span class="badge badge-topo">拓扑排序</span>
+                <span style="font-size: 12px; color: #888;">确定性 · 基于 precedence 规则</span>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <div class="step-num topo">1</div>
+                    <div class="component">上壳体 (Upper Housing)</div>
+                </div>
+                <div class="action">拆卸上壳体，取出固定螺丝</div>
+                <div class="meta">
+                    <span>⏱ 42s</span>
+                    <span>👤 人工</span>
+                    <span>AS: 0.32</span>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <div class="step-num topo">2</div>
+                    <div class="component">电池模组 (BMC)</div>
+                </div>
+                <div class="action">拆卸 BMC 固定支架</div>
+                <div class="meta">
+                    <span>⏱ 42s</span>
+                    <span>🤖 机器人</span>
+                    <span>AS: 0.19</span>
+                </div>
+            </div>
+
+            <div class="arrow-down">↓</div>
+
+            <div class="sequence-label">
+                <span class="badge badge-llm">LLM 生成</span>
+                <span style="font-size: 12px; color: #888;">推理链 · 置信度评估</span>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <div class="step-num llm">1</div>
+                    <div class="component">上壳体 (Upper Housing)</div>
+                </div>
+                <div class="action">拆卸上壳体，取出固定螺丝</div>
+                <div class="meta">
+                    <span>⏱ 56s</span>
+                    <span>👤 人工</span>
+                    <span style="color: #22c55e;">置信度 92%</span>
+                </div>
+                <button class="expand-btn" onclick="this.nextElementSibling.classList.toggle('show')">查看推理链</button>
+                <div class="reasoning-panel">
+                    <div class="reasoning-title">🔗 推理链 (2 个论点)</div>
+                    <div class="confidence-bar">
+                        <span style="font-size: 11px; color: #666;">综合置信度</span>
+                        <div class="confidence-bar-inner"><div class="confidence-bar-fill" style="width: 92%"></div></div>
+                        <span class="confidence-value">0.92</span>
+                    </div>
+                    <div style="margin-bottom: 8px;">
+                        <span class="grade grade-pass">PASS</span>
+                    </div>
+                    <div class="reasoning-link">
+                        <div class="reasoning-link-header">
+                            <span class="layer-badge layer-L1">L1</span>
+                            <span class="claim">上壳体为最外层组件，拆卸风险最低</span>
+                            <span class="confidence">0.92</span>
+                        </div>
+                        <div class="snippet">"Battery Pack Casing - 外壳保护组件，位于最外层..."</div>
+                    </div>
+                    <div class="reasoning-link">
+                        <div class="reasoning-link-header">
+                            <span class="layer-badge layer-L2">L2</span>
+                            <span class="claim">上壳体拆卸不需要前置步骤</span>
+                            <span class="confidence">0.88</span>
+                        </div>
+                        <div class="snippet">"根据文档描述，上壳体为独立部件..."</div>
+                    </div>
+                    <div class="overall">综合推理：遵循先外层后内层的拆卸原则，上壳体在最外层，应首先拆卸。</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 方案B: 并排对比 -->
+        <div class="option">
+            <div class="option-title">方案B: 并排对比</div>
+            <p style="font-size: 13px; color: #666; margin-bottom: 15px;">
+                左右并排展示，优点是方便对比两种方法的差异，缺点是窄屏体验差。
+            </p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div>
+                    <div class="sequence-label">
+                        <span class="badge badge-topo">拓扑排序</span>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="step-num topo">1</div>
+                            <div class="component">上壳体</div>
+                        </div>
+                        <div class="meta">
+                            <span>⏱ 42s</span>
+                            <span>👤</span>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="step-num topo">2</div>
+                            <div class="component">BMC</div>
+                        </div>
+                        <div class="meta">
+                            <span>⏱ 42s</span>
+                            <span>🤖</span>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <div class="sequence-label">
+                        <span class="badge badge-llm">LLM</span>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="step-num llm">1</div>
+                            <div class="component">上壳体</div>
+                        </div>
+                        <div class="meta">
+                            <span>⏱ 56s</span>
+                            <span style="color: #22c55e;">92%</span>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="step-num llm">2</div>
+                            <div class="component">绝缘层</div>
+                        </div>
+                        <div class="meta">
+                            <span>⏱ 37s</span>
+                            <span style="color: #f59e0b;">85%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="background: #fef3c7; padding: 12px; border-radius: 8px; margin-top: 15px; font-size: 13px; color: #92400e;">
+                <strong>⚠ 注意：</strong>并排展示时，推理链展开会占用大量空间，建议点击才展开。
+            </div>
+        </div>
+    </div>
+
+    <h2 style="margin-top: 40px;">关键交互设计</h2>
+    <div style="max-width: 900px; margin: 0 auto; background: white; border-radius: 12px; padding: 25px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+        <div style="margin-bottom: 20px;">
+            <h3 style="color: #333; margin-bottom: 10px;">1. 步骤卡片</h3>
+            <ul style="font-size: 14px; color: #555; line-height: 1.8; padding-left: 20px;">
+                <li>显示：组件名称、操作描述、时间、负责人、AS评分</li>
+                <li>LLM 序列额外显示：置信度百分比、grade 标签</li>
+                <li>底部："查看推理链"按钮（仅 LLM 序列显示）</li>
+            </ul>
+        </div>
+        <div style="margin-bottom: 20px;">
+            <h3 style="color: #333; margin-bottom: 10px;">2. 推理链折叠面板</h3>
+            <ul style="font-size: 14px; color: #555; line-height: 1.8; padding-left: 20px;">
+                <li>论点列表：每条论点显示 layer badge + claim + confidence</li>
+                <li>证据片段：超过 100 字截断，"展开更多"按钮</li>
+                <li>综合置信度条 + grade 标签</li>
+                <li>overall_reasoning 总结文本</li>
+            </ul>
+        </div>
+        <div>
+            <h3 style="color: #333; margin-bottom: 10px;">3. 甘特图</h3>
+            <ul style="font-size: 14px; color: #555; line-height: 1.8; padding-left: 20px;">
+                <li>保持不变，专注时序和资源调度</li>
+                <li>推理链信息通过步骤卡片的折叠面板查看</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2 style="margin-top: 40px;">组件结构设计</h2>
+    <div style="max-width: 900px; margin: 0 auto; background: #1e293b; color: #e2e8f0; border-radius: 12px; padding: 25px; font-family: 'Monaco', 'Consolas', monospace; font-size: 13px; line-height: 1.6;">
+        <pre style="white-space: pre-wrap;">// 前端新增/修改的组件
+
+<span style="color: #f472b6;">// components/SequenceSection.tsx</span>
+<span style="color: #7dd3fc;">interface</span> <span style="color: #fbbf24;">SequenceSectionProps</span> {
+  title: <span style="color: #7dd3fc;">string</span>
+  subtitle: <span style="color: #7dd3fc;">string</span>
+  badge: <span style="color: #7dd3fc;">'topo'</span> | <span style="color: #7dd3fc;">'llm'</span>
+  steps: <span style="color: #7dd3fc;">DisassemblyStep</span>[]
+  showReasoningChain: <span style="color: #7dd3fc;">boolean</span>  <span style="color: #94a3b8;">// LLM 序列为 true</span>
+  parallelBatches?: <span style="color: #7dd3fc;">ParallelBatch</span>[]
+}
+
+<span style="color: #7dd3fc;">export function</span> <span style="color: #38bdf8;">SequenceSection</span>({ title, subtitle, badge, steps, showReasoningChain, parallelBatches }: <span style="color: #fbbf24;">SequenceSectionProps</span>)
+
+<span style="color: #f472b6;">// components/StepCard.tsx</span>
+<span style="color: #7dd3fc;">interface</span> <span style="color: #fbbf24;">StepCardProps</span> {
+  step: <span style="color: #7dd3fc;">DisassemblyStep</span>
+  showReasoningChain?: <span style="color: #7dd3fc;">boolean</span>  <span style="color: #94a3b8;">// 展开推理链按钮</span>
+}
+
+<span style="color: #7dd3fc;">export function</span> <span style="color: #38bdf8;">StepCard</span>({ step, showReasoningChain }: <span style="color: #fbbf24;">StepCardProps</span>)
+
+<span style="color: #f472b6;">// components/ReasoningChainPanel.tsx</span>  <span style="color: #94a3b8;">// 已存在，可复用</span>
+<span style="color: #7dd3fc;">interface</span> <span style="color: #fbbf24;">ReasoningChainPanelProps</span> {
+  chain: <span style="color: #7dd3fc;">StepReasoningChain</span>  <span style="color: #94a3b8;">// LLM 返回的 reasoning_chain</span>
+  confidenceInfo?: <span style="color: #7dd3fc;">ConfidenceInfo</span>
+}
+
+<span style="color: #7dd3fc;">export function</span> <span style="color: #38bdf8;">ReasoningChainPanel</span>({ chain, confidenceInfo }: <span style="color: #fbbf24;">ReasoningChainPanelProps</span>)</pre>
+    </div>
+</body>
+</html>
