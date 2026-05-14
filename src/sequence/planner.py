@@ -144,8 +144,8 @@ class SequencePlanner:
                c.robot_loss as robot_loss, c.loss_diff as loss_diff,
                c.assignee as assignee
         '''
-
         results = self.neo4j.execute_query(cypher, {'model': battery_model})
+        logger.info(f"Database returned {len(results)} component records")
 
         rel_cypher = '''
         MATCH (c1:Component)-[r:RELATES]->(c2:Component)
@@ -153,6 +153,7 @@ class SequencePlanner:
         RETURN c1.name as head, c2.name as tail, r.type as relation
         '''
         relations = self.neo4j.execute_query(rel_cypher, {'model': battery_model})
+        logger.info(f"Database returned {len(relations)} relations")
 
         return self._parse_components_with_relations(results, relations)
 
@@ -197,4 +198,5 @@ class SequencePlanner:
                 'assignee': r.get('assignee')
             })
 
+        logger.info(f"Parsed {len(components)} components: {[c.get('id') or c.get('name') for c in components]}")
         return components
