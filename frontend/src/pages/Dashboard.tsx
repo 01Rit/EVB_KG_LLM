@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { importApi, queryApi } from '../api/client'
+import { importApi } from '../api/client'
 
 interface Stats {
   components: number
@@ -89,12 +89,18 @@ export function Dashboard() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [statusRes, historyRes] = await Promise.all([
+        const [statusRes] = await Promise.all([
           importApi.getStatus(),
-          queryApi.getHistory(5).catch(() => ({ data: [] })),
         ])
         setStats(statusRes.data)
-        setHistory(Array.isArray(historyRes.data) ? historyRes.data : [])
+        // 从 localStorage 读取查询历史（QueryPage 保存的带时间戳记录）
+        try {
+          const stored = localStorage.getItem('richQueryHistory')
+          if (stored) {
+            const parsed = JSON.parse(stored)
+            if (Array.isArray(parsed)) setHistory(parsed.slice(0, 5))
+          }
+        } catch (e) { /* ignore */ }
       } catch (error) {
         console.error('Failed to load stats:', error)
         setError('加载数据失败，请确认后端服务已启动')

@@ -43,7 +43,7 @@ export function QueryPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const addToHistory = (query: string) => {
+  const addToHistory = (query: string, batteryModel?: string) => {
     const trimmed = query.trim()
     if (!trimmed) return
     setQueryHistory(prev => {
@@ -52,6 +52,14 @@ export function QueryPage() {
       localStorage.setItem('queryHistory', JSON.stringify(newHistory))
       return newHistory
     })
+    // 保存带时间戳的详细历史记录供仪表盘使用
+    try {
+      const richHistory = JSON.parse(localStorage.getItem('richQueryHistory') || '[]')
+      const newEntry = { query: trimmed, battery_model: batteryModel || '', created_at: new Date().toISOString() }
+      const filtered = richHistory.filter((h: any) => h.query !== trimmed)
+      filtered.unshift(newEntry)
+      localStorage.setItem('richQueryHistory', JSON.stringify(filtered.slice(0, MAX_HISTORY)))
+    } catch (e) { /* ignore */ }
   }
 
   const clearHistory = () => {
