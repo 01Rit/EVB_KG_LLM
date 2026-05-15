@@ -44,55 +44,43 @@ function getGradeColor(grade: string): string {
 }
 
 function renderStepReasoningChain(chain: StepReasoningChain, info?: ConfidenceInfo) {
+  const gradeColor = info ? getGradeColor(info.grade) : '#6b7280'
   return (
-    <div style={{ padding: '12px', backgroundColor: '#fffbeb', borderRadius: '8px' }}>
+    <div className="card" style={{
+      background: '#fffbeb',
+      borderColor: '#fde68a',
+      padding: 'var(--space-md)',
+    }}>
       {info && (
-        <div style={{ marginBottom: '12px' }}>
-          <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
-            综合置信度
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{ flex: 1, height: '6px', background: '#e5e7eb', borderRadius: '3px' }}>
-              <div style={{
-                width: `${info.overall * 100}%`,
-                height: '100%',
-                background: info.overall >= 0.8 ? '#22c55e' : info.overall >= 0.6 ? '#f59e0b' : '#ef4444',
-                borderRadius: '3px'
-              }} />
+        <div className="mb-md">
+          <div className="text-xs text-muted mb-sm">综合置信度</div>
+          <div className="flex items-center gap-md">
+            <div className="progress-bar-track" style={{ flex: 1, height: 6 }}>
+              <div className="progress-bar-fill" style={{ width: `${info.overall * 100}%`, background: gradeColor }} />
             </div>
-            <span style={{ fontSize: '12px', fontWeight: 600 }}>
+            <span className="font-bold text-sm" style={{ color: gradeColor, minWidth: 36 }}>
               {info.overall.toFixed(2)}
             </span>
           </div>
         </div>
       )}
 
-      <div style={{ marginBottom: '12px' }}>
+      <div className="flex-col gap-sm mb-md">
         {chain.links.map((link, idx) => (
-          <div key={idx} style={{
-            background: 'white',
-            border: '1px solid #e5e7eb',
-            borderRadius: '6px',
-            padding: '10px',
-            marginBottom: '8px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-              <span style={{
-                padding: '2px 6px',
-                borderRadius: '4px',
-                fontSize: '11px',
-                fontWeight: 600,
-                background: link.evidence_layer === 1 ? '#dbeafe' : link.evidence_layer === 2 ? '#fef3c7' : '#fce7f3',
-                color: link.evidence_layer === 1 ? '#1d4ed8' : link.evidence_layer === 2 ? '#92400e' : '#9d174d'
-              }}>
+          <div key={idx} className="card" style={{ padding: 'var(--space-md)', background: 'white' }}>
+            <div className="flex items-center gap-md mb-sm">
+              <span className={`badge ${
+                link.evidence_layer === 1 ? 'badge-green' :
+                link.evidence_layer === 2 ? 'badge-blue' : 'badge-amber'
+              }`}>
                 L{link.evidence_layer}
               </span>
-              <span style={{ fontSize: '13px', color: '#333' }}>{link.claim}</span>
-              <span style={{ marginLeft: 'auto', fontSize: '12px', color: '#22c55e', fontWeight: 600 }}>
+              <span className="text-sm" style={{ flex: 1 }}>{link.claim}</span>
+              <span className="font-bold text-sm" style={{ color: 'var(--color-l1)' }}>
                 {link.confidence.toFixed(2)}
               </span>
             </div>
-            <div style={{ fontSize: '12px', color: '#666', background: '#f9f9f9', padding: '6px', borderRadius: '4px' }}>
+            <div className="text-xs text-secondary" style={{ background: 'var(--color-bg)', padding: '6px', borderRadius: 'var(--radius-sm)' }}>
               证据: {link.evidence_snippet?.slice(0, 100)}...
             </div>
           </div>
@@ -100,12 +88,10 @@ function renderStepReasoningChain(chain: StepReasoningChain, info?: ConfidenceIn
       </div>
 
       {chain.overall_reasoning && (
-        <div style={{
-          fontSize: '13px',
-          color: '#555',
+        <div className="text-sm text-secondary" style={{
           fontStyle: 'italic',
-          paddingTop: '8px',
-          borderTop: '1px dashed #ddd'
+          paddingTop: 'var(--space-sm)',
+          borderTop: '1px dashed var(--color-border)',
         }}>
           综合推理：{chain.overall_reasoning}
         </div>
@@ -117,14 +103,9 @@ function renderStepReasoningChain(chain: StepReasoningChain, info?: ConfidenceIn
 function DepthBadge({ depth }: { depth: number }) {
   const labels = ['L1', 'L1→L2', 'L1→L2→L3']
   return (
-    <span style={{
-      background: depth === 0 ? '#dbeafe' : depth === 1 ? '#fef3c7' : '#fce7f3',
-      color: depth === 0 ? '#1d4ed8' : depth === 1 ? '#92400e' : '#9d174d',
-      padding: '2px 6px',
-      borderRadius: '4px',
-      fontSize: '11px',
-      fontWeight: 600
-    }}>
+    <span className={`badge ${
+      depth === 0 ? 'badge-blue' : depth === 1 ? 'badge-amber' : 'badge-red'
+    }`}>
       {labels[depth] || `Depth ${depth}`}
     </span>
   )
@@ -133,22 +114,11 @@ function DepthBadge({ depth }: { depth: number }) {
 function ConfidenceBar({ value }: { value: number }) {
   const color = value >= 0.8 ? '#22c55e' : value >= 0.6 ? '#f59e0b' : '#ef4444'
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <div style={{
-        flex: 1,
-        height: '6px',
-        background: '#e5e7eb',
-        borderRadius: '3px',
-        overflow: 'hidden'
-      }}>
-        <div style={{
-          width: `${value * 100}%`,
-          height: '100%',
-          background: color,
-          transition: 'width 0.3s'
-        }} />
+    <div className="flex items-center gap-md" style={{ minWidth: 160 }}>
+      <div className="progress-bar-track" style={{ flex: 1, height: 6 }}>
+        <div className="progress-bar-fill" style={{ width: `${value * 100}%`, background: color }} />
       </div>
-      <span style={{ fontSize: '12px', fontWeight: 600, color, minWidth: '36px' }}>
+      <span className="font-bold text-sm" style={{ color, minWidth: 36 }}>
         {value.toFixed(2)}
       </span>
     </div>
@@ -160,77 +130,51 @@ export function ReasoningChainPanel({
   totalIterations,
   finalConfidence,
   stepReasoningChain,
-  stepConfidenceInfo
+  stepConfidenceInfo,
 }: ReasoningChainPanelProps) {
-  // If we have single step reasoning chain, render it
   if (stepReasoningChain) {
     return renderStepReasoningChain(stepReasoningChain, stepConfidenceInfo)
   }
 
   if (!reasoningTraces || reasoningTraces.length === 0) {
     return (
-      <div style={{
-        padding: '20px',
-        textAlign: 'center',
-        color: '#6b7280',
-        fontSize: '13px'
-      }}>
-        暂无推理链数据
+      <div className="empty-state" style={{ padding: 'var(--space-xl)' }}>
+        <div className="empty-state-text text-sm">暂无推理链数据</div>
       </div>
     )
   }
 
   return (
-    <div style={{ padding: '16px', fontSize: '13px' }}>
-      {/* 汇总信息 */}
-      <div style={{
-        display: 'flex',
-        gap: '24px',
-        padding: '12px 16px',
-        background: '#f9fafb',
-        borderRadius: '8px',
-        marginBottom: '16px'
-      }}>
+    <div className="text-sm">
+      {/* Summary */}
+      <div className="card mb-lg" style={{ background: 'var(--color-bg)', display: 'flex', gap: 24, padding: 'var(--space-md) var(--space-lg)' }}>
         <div>
-          <div style={{ color: '#6b7280', fontSize: '11px', marginBottom: '4px' }}>迭代次数</div>
-          <div style={{ fontWeight: 700, fontSize: '18px' }}>{totalIterations}</div>
+          <div className="text-xs text-muted mb-xs">迭代次数</div>
+          <div className="font-bold" style={{ fontSize: 18 }}>{totalIterations}</div>
         </div>
         <div>
-          <div style={{ color: '#6b7280', fontSize: '11px', marginBottom: '4px' }}>最终置信度</div>
+          <div className="text-xs text-muted mb-xs">最终置信度</div>
           <ConfidenceBar value={finalConfidence ?? 0} />
         </div>
       </div>
 
-      {/* 迭代详情 */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {/* Iterations */}
+      <div className="flex-col gap-md">
         {reasoningTraces.map((trace, idx) => {
           const cr = trace.confidence_result
           return (
-            <div key={idx} style={{
-              border: '1px solid #e5e7eb',
-              borderRadius: '8px',
-              overflow: 'hidden'
-            }}>
-              {/* 迭代头部 */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
+            <div key={idx} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              {/* Header */}
+              <div className="flex items-center gap-md" style={{
                 padding: '10px 14px',
                 background: '#f3f4f6',
-                borderBottom: '1px solid #e5e7eb'
+                borderBottom: '1px solid var(--color-border)',
               }}>
-                <span style={{ fontWeight: 700, color: '#374151' }}>
-                  迭代 {trace.iteration + 1}
-                </span>
+                <span className="font-bold">迭代 {trace.iteration + 1}</span>
                 <DepthBadge depth={trace.target_depth} />
-                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div className="flex items-center gap-md" style={{ marginLeft: 'auto' }}>
                   {cr && (
-                    <span style={{
-                      color: getGradeColor(cr.grade),
-                      fontSize: '12px',
-                      fontWeight: 600
-                    }}>
+                    <span className="font-bold text-xs" style={{ color: getGradeColor(cr.grade) }}>
                       {getGradeLabel(cr.grade)}
                     </span>
                   )}
@@ -238,89 +182,60 @@ export function ReasoningChainPanel({
                 </div>
               </div>
 
-              {/* 节点统计 */}
-              <div style={{
-                display: 'flex',
-                gap: '16px',
-                padding: '8px 14px',
-                borderBottom: '1px solid #e5e7eb'
-              }}>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <span style={{ color: '#6b7280' }}>检索节点:</span>
-                  <span style={{ fontWeight: 600 }}>
-                    {trace.retrieved_nodes_count}
-                    {trace.cross_layer_expansion && (
-                      <span style={{ color: '#9ca3af', fontSize: '11px', marginLeft: '4px' }}>
-                        (L1:{trace.cross_layer_expansion.l1_nodes || 0},
-                         L2:{trace.cross_layer_expansion.l2_nodes || 0},
-                         L3:{trace.cross_layer_expansion.l3_nodes || 0})
-                      </span>
-                    )}
-                  </span>
-                </div>
+              {/* Stats */}
+              <div className="flex gap-lg" style={{ padding: '8px 14px', borderBottom: '1px solid var(--color-border-light)' }}>
+                <span className="text-xs text-secondary">
+                  检索节点: <span className="font-bold">{trace.retrieved_nodes_count}</span>
+                  {trace.cross_layer_expansion && (
+                    <span className="text-muted" style={{ marginLeft: 4 }}>
+                      (L1:{trace.cross_layer_expansion.l1_nodes || 0},
+                       L2:{trace.cross_layer_expansion.l2_nodes || 0},
+                       L3:{trace.cross_layer_expansion.l3_nodes || 0})
+                    </span>
+                  )}
+                </span>
                 {trace.web_results_count > 0 && (
-                  <span style={{ color: '#3b82f6' }}>
-                    🌐 联网:{trace.web_results_count}
+                  <span className="text-xs" style={{ color: 'var(--color-accent)' }}>
+                    🌐 联网: {trace.web_results_count}
                   </span>
                 )}
               </div>
 
-              {/* 置信度因子 */}
+              {/* Confidence Factors */}
               {cr && (
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(3, 1fr)',
-                  gap: '8px',
-                  padding: '8px 14px',
-                  borderBottom: '1px solid #e5e7eb',
-                  background: '#fafafa'
-                }}>
+                <div className="grid-3" style={{ padding: '8px 14px', borderBottom: '1px solid var(--color-border-light)', background: '#fafafa' }}>
                   <div>
-                    <div style={{ fontSize: '10px', color: '#9ca3af' }}>evidence_coverage</div>
-                    <div style={{ fontWeight: 600, fontSize: '12px' }}>{cr.evidence_coverage.toFixed(2)}</div>
+                    <div className="text-xs text-muted">evidence_coverage</div>
+                    <div className="font-bold text-xs">{cr.evidence_coverage.toFixed(2)}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: '10px', color: '#9ca3af' }}>cross_layer_depth</div>
-                    <div style={{ fontWeight: 600, fontSize: '12px' }}>{cr.cross_layer_depth_score.toFixed(2)}</div>
+                    <div className="text-xs text-muted">cross_layer_depth</div>
+                    <div className="font-bold text-xs">{cr.cross_layer_depth_score.toFixed(2)}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: '10px', color: '#9ca3af' }}>consistency</div>
-                    <div style={{ fontWeight: 600, fontSize: '12px' }}>{cr.consistency.toFixed(2)}</div>
+                    <div className="text-xs text-muted">consistency</div>
+                    <div className="font-bold text-xs">{cr.consistency.toFixed(2)}</div>
                   </div>
                 </div>
               )}
 
-              {/* 缺失证据 */}
+              {/* Missing Evidence */}
               {trace.missing_evidence && trace.missing_evidence.length > 0 && (
                 <div style={{ padding: '8px 14px' }}>
-                  <div style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '4px' }}>仍缺失:</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  <div className="text-xs text-muted mb-xs">仍缺失:</div>
+                  <div className="flex gap-xs flex-wrap">
                     {trace.missing_evidence.map((item, i) => (
-                      <span key={i} style={{
-                        background: '#fee2e2',
-                        color: '#dc2626',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        fontSize: '11px'
-                      }}>
-                        {item}
-                      </span>
+                      <span key={i} className="badge badge-red text-xs">{item}</span>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* 推理步骤 */}
+              {/* Reasoning Steps */}
               {trace.reasoning_steps && trace.reasoning_steps.length > 0 && (
                 <div style={{ padding: '8px 14px' }}>
                   {trace.reasoning_steps.map((step, i) => (
-                    <div key={i} style={{
-                      fontSize: '12px',
-                      color: '#4b5563',
-                      marginBottom: '2px'
-                    }}>
-                      {step}
-                    </div>
+                    <div key={i} className="text-xs mb-xs" style={{ color: '#4b5563' }}>{step}</div>
                   ))}
                 </div>
               )}

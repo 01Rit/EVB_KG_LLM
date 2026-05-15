@@ -146,9 +146,10 @@ class CrossLayerRetriever:
 
             if source_id and target_id:
                 edges.append({
-                    'source': source_id,
-                    'target': target_id,
-                    'relation_type': relation_type,
+                    'start': source_id,
+                    'end': target_id,
+                    'type': relation_type,
+                    'properties': {},
                 })
 
         return EvidenceGraph(nodes=list(nodes_map.values()), edges=edges)

@@ -913,8 +913,8 @@ async def get_import_status():
     neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
 
     cypher_components = 'MATCH (c:Component) RETURN count(c) as count'
-    cypher_documents = 'MATCH (d:Document) RETURN count(d) as count'
-    cypher_terms = 'MATCH (t:Term) RETURN count(t) as count'
+    cypher_documents = 'MATCH (d) WHERE d:L2_Document OR d:L2_Entity OR d:Document RETURN count(d) as count'
+    cypher_terms = 'MATCH (t) WHERE t:L3_Term OR t:Term RETURN count(t) as count'
 
     try:
         comp_count = neo4j.execute_query(cypher_components)[0].get('count', 0)

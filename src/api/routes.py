@@ -8,6 +8,7 @@ from src.graphrag.retriever import MultiPathRetriever
 from src.utils.llm_client import LLMClient
 from src.config import settings
 import logging
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +37,11 @@ async def create_plan(request: PlanRequest):
         result = await planner.plan(
             query=f'拆卸{request.battery_model}型号电池',
             battery_model=request.battery_model,
-            context=request.context,
             debug=request.debug
         )
         return result
     except Exception as e:
-        logger.error(f'Plan creation failed: {e}')
+        logger.error(f'Plan creation failed: {e}\n{traceback.format_exc()}')
         raise HTTPException(status_code=500, detail=str(e))
 
 

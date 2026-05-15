@@ -56,5 +56,8 @@ class EvidenceGraph(BaseModel):
         if self.edges:
             lines.append('\n--- Relations ---')
             for edge in self.edges[:50]:
-                lines.append(f'  {edge["start"]} --[{edge["type"]}]--> {edge["end"]}')
+                s = edge.get('start') or edge.get('source') or '?'
+                e = edge.get('end') or edge.get('target') or '?'
+                t = edge.get('type') or edge.get('relation_type') or '?'
+                lines.append(f'  {s} --[{t}]--> {e}')
         return '\n'.join(lines)

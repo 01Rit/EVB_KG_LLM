@@ -29,11 +29,7 @@ export function QueryPage() {
   useEffect(() => {
     const saved = localStorage.getItem('queryHistory')
     if (saved) {
-      try {
-        setQueryHistory(JSON.parse(saved))
-      } catch (e) {
-        console.error('Failed to load query history:', e)
-      }
+      try { setQueryHistory(JSON.parse(saved)) } catch (e) { /* ignore */ }
     }
   }, [])
 
@@ -50,19 +46,12 @@ export function QueryPage() {
   const addToHistory = (query: string) => {
     const trimmed = query.trim()
     if (!trimmed) return
-
     setQueryHistory(prev => {
       const filtered = prev.filter(q => q !== trimmed)
       const newHistory = [trimmed, ...filtered].slice(0, MAX_HISTORY)
       localStorage.setItem('queryHistory', JSON.stringify(newHistory))
       return newHistory
     })
-  }
-
-  const selectHistoryItem = (item: string) => {
-    setSearchQuery(item)
-    setShowHistory(false)
-    inputRef.current?.focus()
   }
 
   const clearHistory = () => {
@@ -84,20 +73,12 @@ export function QueryPage() {
       const response = await fetch('/api/v1/query/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: queryText,
-          use_web_search: useWebSearch,
-        }),
+        body: JSON.stringify({ question: queryText, use_web_search: useWebSearch }),
       })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
 
       const reader = response.body?.getReader()
-      if (!reader) {
-        throw new Error('No response body')
-      }
+      if (!reader) throw new Error('No response body')
 
       const decoder = new TextDecoder()
       let buffer = ''
@@ -105,11 +86,9 @@ export function QueryPage() {
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
         buffer = lines.pop() || ''
-
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             try {
@@ -123,15 +102,9 @@ export function QueryPage() {
                 setProgress({ stage: 'done', progress: 1, message: '完成' })
                 addToHistory(queryText)
               } else {
-                setProgress({
-                  stage: data.stage,
-                  progress: data.progress,
-                  message: data.message,
-                })
+                setProgress({ stage: data.stage, progress: data.progress, message: data.message })
               }
-            } catch (e) {
-              console.error('Failed to parse SSE data:', e)
-            }
+            } catch (e) { /* ignore parse errors */ }
           }
         }
       }
@@ -147,87 +120,44 @@ export function QueryPage() {
     ? PROGRESS_STAGES
     : PROGRESS_STAGES.filter(s => s.key !== 'retrieving_web')
 
-  const currentStageIndex = progress
-    ? visibleStages.findIndex(s => s.key === progress.stage)
-    : -1
-
   return (
-    <div>
-      <h1 className="page-header">知识问答</h1>
+    <div className="page-content">
+      <h1 className="page-header">🔍 知识问答</h1>
 
-      <div className="card">
-        <div style={{ marginBottom: '20px', position: 'relative' }} ref={historyRef}>
-          <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold' }}>
-            输入问题
-          </label>
+      {/* Query Input Card */}
+      <div className="card mb-xl">
+        <div className="mb-lg" ref={historyRef} style={{ position: 'relative' }}>
+          <label className="form-label">输入问题</label>
           <div style={{ position: 'relative' }}>
             <input
               ref={inputRef}
               type="text"
+              className="form-input"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onFocus={() => setShowHistory(true)}
               placeholder="输入您的问题..."
               disabled={loading}
-              style={{
-                width: '100%',
-                padding: '10px',
-                borderRadius: '8px',
-                border: '1px solid #ddd',
-                fontSize: '16px',
-              }}
             />
             {showHistory && queryHistory.length > 0 && (
-              <div style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                right: 0,
-                background: 'white',
-                border: '1px solid #ddd',
-                borderRadius: '8px',
-                marginTop: '4px',
-                maxHeight: '200px',
-                overflowY: 'auto',
-                zIndex: 1000,
-                boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-              }}>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '8px 12px',
-                  borderBottom: '1px solid #eee',
-                  backgroundColor: '#f8fafc',
-                }}>
-                  <span style={{ fontSize: '12px', color: '#666' }}>最近查询</span>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); clearHistory(); }}
-                    style={{
-                      fontSize: '12px',
-                      color: '#666',
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      padding: '2px 6px',
-                    }}
-                  >
+              <div className="dropdown">
+                <div className="flex items-center justify-between" style={{ padding: '8px 12px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg)' }}>
+                  <span className="text-xs text-muted">最近查询</span>
+                  <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); clearHistory() }}>
                     清空
                   </button>
                 </div>
                 {queryHistory.map((item, index) => (
                   <div
                     key={index}
-                    onClick={() => selectHistoryItem(item)}
-                    style={{
-                      padding: '10px 12px',
-                      cursor: 'pointer',
-                      borderBottom: index < queryHistory.length - 1 ? '1px solid #eee' : 'none',
+                    className="dropdown-item"
+                    onClick={() => {
+                      setSearchQuery(item)
+                      setShowHistory(false)
+                      inputRef.current?.focus()
                     }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'white')}
                   >
-                    <span style={{ fontSize: '14px' }}>{item}</span>
+                    <span className="text-sm">{item}</span>
                   </div>
                 ))}
               </div>
@@ -235,181 +165,115 @@ export function QueryPage() {
           </div>
         </div>
 
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold' }}>
-            查询模式
-          </label>
-          <div style={{ display: 'flex', gap: '10px' }}>
+        <div className="mb-lg">
+          <label className="form-label">查询模式</label>
+          <div className="flex gap-md">
             <button
+              className={`btn ${!useWebSearch ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => setUseWebSearch(false)}
-              style={{
-                padding: '10px 20px',
-                backgroundColor: !useWebSearch ? '#3b82f6' : '#fff',
-                color: !useWebSearch ? '#fff' : '#333',
-                border: '1px solid #ddd',
-                borderRadius: '8px',
-                cursor: 'pointer',
-              }}
             >
-              本地知识库
+              📚 本地知识库
             </button>
             <button
+              className={`btn ${useWebSearch ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => setUseWebSearch(true)}
-              style={{
-                padding: '10px 20px',
-                backgroundColor: useWebSearch ? '#3b82f6' : '#fff',
-                color: useWebSearch ? '#fff' : '#333',
-                border: '1px solid #ddd',
-                borderRadius: '8px',
-                cursor: 'pointer',
-              }}
             >
-              本地+联网
+              🌐 本地+联网
             </button>
           </div>
         </div>
 
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div className="mb-lg">
+          <label className="flex items-center gap-md" style={{ cursor: 'pointer' }}>
             <input
               type="checkbox"
               checked={debug}
               onChange={(e) => setDebug(e.target.checked)}
+              style={{ width: 16, height: 16 }}
             />
-            <span>Debug模式</span>
+            <span className="text-sm">Debug 模式</span>
           </label>
         </div>
 
         <button
+          className="btn btn-primary btn-lg"
           onClick={handleQuery}
           disabled={loading || !searchQuery.trim()}
-          style={{
-            padding: '15px 30px',
-            backgroundColor: loading ? '#ccc' : '#3b82f6',
-            color: 'white',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            fontSize: '16px',
-          }}
         >
-          {loading ? '查询中...' : '开始查询'}
+          {loading ? '⏳ 查询中...' : '🚀 开始查询'}
         </button>
       </div>
 
-      {loading && progress && (
-        <div className="card">
-          <h3>查询进度</h3>
-          <div style={{ marginBottom: '20px' }}>
+      {/* Progress - show immediately on loading */}
+      {loading && (
+        <div className="card mb-xl">
+          <div className="card-header">
+            <span className="card-title">⏳ 查询进度</span>
+          </div>
+          <div className="progress-steps mb-lg">
             {visibleStages.map((stage, index) => {
-              const isCompleted = index < currentStageIndex
-              const isCurrent = index === currentStageIndex
-              const isPending = index > currentStageIndex
-
+              const currentIdx = progress ? visibleStages.findIndex(s => s.key === progress.stage) : -1
+              const isCompleted = index < currentIdx
+              const isCurrent = index === currentIdx
               return (
-                <div
-                  key={stage.key}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    marginBottom: '8px',
-                    opacity: isPending ? 0.5 : 1,
-                  }}
-                >
-                  <div style={{
-                    width: '24px',
-                    height: '24px',
-                    borderRadius: '50%',
-                    backgroundColor: isCompleted ? '#22c55e' : isCurrent ? '#3b82f6' : '#ddd',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'white',
-                    fontSize: '12px',
-                    fontWeight: 'bold',
-                  }}>
+                <div key={stage.key} className="progress-step">
+                  <div className={`progress-step-dot ${isCompleted ? 'completed' : isCurrent ? 'active' : 'pending'}`}>
                     {isCompleted ? '✓' : index + 1}
                   </div>
-                  <span style={{
-                    color: isCurrent ? '#3b82f6' : 'inherit',
-                    fontWeight: isCurrent ? 'bold' : 'normal',
-                  }}>
+                  <span className={`progress-step-label ${isCompleted ? 'completed' : isCurrent ? 'active' : 'pending'}`}>
                     {stage.label}
                   </span>
-                  {isCurrent && progress.message && (
-                    <span style={{ color: '#666', fontSize: '14px' }}>
-                      - {progress.message}
-                    </span>
-                  )}
                 </div>
               )
             })}
           </div>
-          <div style={{
-            width: '100%',
-            height: '8px',
-            backgroundColor: '#eee',
-            borderRadius: '4px',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              width: `${(progress.progress || 0) * 100}%`,
-              height: '100%',
-              backgroundColor: '#3b82f6',
-              transition: 'width 0.3s ease',
-            }} />
+          <div className="progress-bar-container">
+            <div className="progress-bar-info">
+              <span>{progress?.message || '正在准备...'}</span>
+              {progress ? <span>{Math.round((progress.progress || 0) * 100)}%</span> : <span>--</span>}
+            </div>
+            <div className="progress-bar-track">
+              <div
+                className={`progress-bar-fill ${!progress ? 'indeterminate blue' : 'blue'}`}
+                style={progress ? { width: `${(progress.progress || 0) * 100}%` } : undefined}
+              />
+            </div>
           </div>
         </div>
       )}
 
+      {/* Error */}
       {error && (
-        <div className="card" style={{ backgroundColor: '#fef2f2', borderLeft: '4px solid #ef4444' }}>
-          <h3 style={{ color: '#dc2626' }}>错误</h3>
-          <p>{error}</p>
+        <div className="error-card mb-xl">
+          <div className="error-card-title">❌ 错误</div>
+          <div className="error-card-text">{error}</div>
         </div>
       )}
 
+      {/* Result */}
       {result && (
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <h2>回答</h2>
-            <span style={{
-              padding: '4px 12px',
-              borderRadius: '4px',
-              fontSize: '12px',
-              fontWeight: 'bold',
-              background: useWebSearch ? '#f0fdf4' : '#e0f2fe',
-              color: useWebSearch ? '#15803d' : '#0369a1',
-            }}>
+        <div className="card mb-xl">
+          <div className="card-header">
+            <span className="card-title">💡 回答</span>
+            <span className={`badge ${useWebSearch ? 'badge-green' : 'badge-blue'}`}>
               {useWebSearch ? '本地+联网' : '本地知识库'}
             </span>
           </div>
-
-          <div style={{
-            background: '#fafafa',
-            padding: '20px',
-            borderRadius: '8px',
-            borderLeft: '4px solid #3b82f6',
-            marginBottom: '20px',
+          <div className="mb-lg" style={{
+            background: 'var(--color-bg)',
+            padding: 'var(--space-xl)',
+            borderRadius: 'var(--radius-lg)',
+            borderLeft: '4px solid var(--color-accent)',
           }}>
             <MarkdownRenderer content={result} />
           </div>
 
           {sources.length > 0 && (
-            <div style={{ marginBottom: '20px' }}>
-              <h4 style={{ marginBottom: '10px' }}>参考来源</h4>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            <div className="mb-lg">
+              <div className="text-sm font-bold mb-md">参考来源</div>
+              <div className="flex gap-sm flex-wrap">
                 {sources.map((source, i) => (
-                  <span
-                    key={i}
-                    style={{
-                      padding: '4px 12px',
-                      backgroundColor: '#f5f5f5',
-                      borderRadius: '4px',
-                      fontSize: '14px',
-                    }}
-                  >
+                  <span key={i} className="badge badge-gray">
                     {source.type}: {source.name}
                   </span>
                 ))}
@@ -418,6 +282,7 @@ export function QueryPage() {
           )}
 
           <button
+            className="btn btn-success"
             onClick={() => {
               const blob = new Blob([result], { type: 'text/plain' })
               const url = URL.createObjectURL(blob)
@@ -425,17 +290,10 @@ export function QueryPage() {
               a.href = url
               a.download = `answer_${searchQuery || 'query'}.txt`
               a.click()
-            }}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: '#22c55e',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
+              URL.revokeObjectURL(url)
             }}
           >
-            导出回答
+            📥 导出回答
           </button>
         </div>
       )}

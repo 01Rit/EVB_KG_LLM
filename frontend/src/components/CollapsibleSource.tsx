@@ -1,10 +1,9 @@
-// frontend/src/components/CollapsibleSource.tsx
 import { useState } from 'react'
 
 interface SourceData {
-  type: string      // e.g., "本地KG-Component"
-  name: string      // e.g., "绝缘体"
-  snippet?: string   // 证据片段
+  type: string
+  name: string
+  snippet?: string
 }
 
 interface CollapsibleSourceProps {
@@ -16,43 +15,35 @@ export function CollapsibleSource({ source, defaultCollapsed = true }: Collapsib
   const [isExpanded, setIsExpanded] = useState(!defaultCollapsed)
 
   return (
-    <div style={{
-      backgroundColor: '#f9fafb',
-      borderLeft: '3px solid #3b82f6',
-      borderRadius: '4px',
-      margin: '8px 0',
-      overflow: 'hidden'
+    <div className="card" style={{
+      padding: 0,
+      overflow: 'hidden',
+      borderLeft: '3px solid var(--color-accent)',
     }}>
       <div
         onClick={() => setIsExpanded(!isExpanded)}
+        className="flex items-center gap-md"
         style={{
           padding: '8px 12px',
           cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          userSelect: 'none'
+          userSelect: 'none',
         }}
       >
-        <span style={{
-          fontSize: '12px',
-          color: '#6b7280',
+        <span className="text-xs text-muted" style={{
           transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-          transition: 'transform 0.2s'
+          transition: 'transform 0.2s',
         }}>
           ▶
         </span>
-        <span style={{ fontSize: '13px', color: '#374151' }}>
+        <span className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
           来源：{source.type}: {source.name}
         </span>
       </div>
       {isExpanded && source.snippet && (
-        <div style={{
+        <div className="text-sm" style={{
           padding: '8px 12px',
-          backgroundColor: '#fff',
-          borderTop: '1px solid #e5e7eb',
-          fontSize: '13px',
-          color: '#4b5563'
+          borderTop: '1px solid var(--color-border)',
+          color: 'var(--color-text-secondary)',
         }}>
           {source.snippet}
         </div>

@@ -21,6 +21,23 @@ class GraphEdgeResponse(BaseModel):
         populate_by_name = True
 
 
+def _map_display_type(labels: list[str]) -> str:
+    """Map Neo4j label(s) to display type (L1/L2/L3)."""
+    for label in labels:
+        if label == 'Component':
+            return 'L1'
+        if label in ('L2_Document', 'L2_Entity'):
+            return 'L2'
+        if label == 'L3_Term':
+            return 'L3'
+    # fallback: check prefix
+    if any(l.startswith('L2') for l in labels):
+        return 'L2'
+    if any(l.startswith('L3') for l in labels):
+        return 'L3'
+    return labels[0] if labels else 'Unknown'
+
+
 @router.get('/graph/nodes', response_model=List[GraphNodeResponse])
 async def get_nodes():
     from src.kg.client import Neo4jClient
@@ -30,12 +47,13 @@ async def get_nodes():
 
     cypher = '''
     MATCH (n)
-    WHERE n:Component OR n:Document OR n:Term
+    WHERE n:Component OR n:L2_Document OR n:L2_Entity OR n:L3_Term
+          OR n:Document OR n:Term
     RETURN COALESCE(n.id, n.name) as id,
            COALESCE(n.name, n.title, n.term_id) as name,
-           labels(n)[0] as type,
+           labels(n) as node_labels,
            properties(n) as properties
-    LIMIT 500
+    LIMIT 1000
     '''
 
     try:
@@ -43,13 +61,8 @@ async def get_nodes():
 
         nodes = []
         for r in results:
-            node_type = r.get('type', 'Unknown')
-            if node_type == 'Component':
-                display_type = 'L1'
-            elif node_type == 'Document':
-                display_type = 'L2'
-            else:
-                display_type = 'L3'
+            labels = r.get('node_labels', [])
+            display_type = _map_display_type(labels)
 
             nodes.append(GraphNodeResponse(
                 id=r.get('id', ''),
@@ -72,10 +85,11 @@ async def get_node(node_id: str):
 
     cypher = '''
     MATCH (n)
-    WHERE n.id = $node_id OR n.name = $node_id
+    WHERE (n:Component OR n:L2_Document OR n:L2_Entity OR n:L3_Term OR n:Document OR n:Term)
+      AND (n.id = $node_id OR n.name = $node_id)
     RETURN COALESCE(n.id, n.name) as id,
            COALESCE(n.name, n.title, n.term_id) as name,
-           labels(n)[0] as type,
+           labels(n) as node_labels,
            properties(n) as properties
     LIMIT 1
     '''
@@ -87,12 +101,13 @@ async def get_node(node_id: str):
             raise HTTPException(status_code=404, detail='Node not found')
 
         r = results[0]
-        node_type = r.get('type', 'Unknown')
+        labels = r.get('node_labels', [])
+        display_type = _map_display_type(labels)
 
         return GraphNodeResponse(
             id=r.get('id', ''),
             name=r.get('name', ''),
-            type=node_type,
+            type=display_type,
             properties=r.get('properties', {})
         )
     finally:
@@ -108,9 +123,10 @@ async def get_relationships():
 
     cypher = '''
     MATCH (a)-[r]->(b)
-    WHERE a:Component OR a:Document OR a:Term
+    WHERE (a:Component OR a:L2_Document OR a:L2_Entity OR a:L3_Term OR a:Document OR a:Term)
+      AND (b:Component OR b:L2_Document OR b:L2_Entity OR b:L3_Term OR b:Document OR b:Term)
     RETURN COALESCE(a.id, a.name) as from_id, COALESCE(b.id, b.name) as to_id, type(r) as type
-    LIMIT 1000
+    LIMIT 2000
     '''
 
     try:
@@ -136,15 +152,25 @@ async def search_nodes(q: str, node_type: Optional[str] = None):
 
     neo4j = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
 
-    if node_type:
-        label = node_type
+    # Map display type to Neo4j labels
+    type_label_map = {
+        'L1': ['Component'],
+        'L2': ['L2_Document', 'L2_Entity'],
+        'L3': ['L3_Term'],
+    }
+
+    if node_type and node_type in type_label_map:
+        labels = type_label_map[node_type]
     else:
-        label = 'Component'
+        labels = ['Component', 'L2_Document', 'L2_Entity', 'L3_Term', 'Document', 'Term']
+
+    label_conditions = ' OR '.join(f'n:{label}' for label in labels)
 
     cypher = f'''
-    MATCH (n:{label})
-    WHERE n.name CONTAINS $q OR COALESCE(n.id, '') CONTAINS $q
-    RETURN COALESCE(n.id, n.name) as id, n.name as name, '{label}' as type, properties(n) as properties
+    MATCH (n)
+    WHERE ({label_conditions})
+      AND (n.name CONTAINS $q OR COALESCE(n.id, '') CONTAINS $q)
+    RETURN COALESCE(n.id, n.name) as id, n.name as name, labels(n) as node_labels, properties(n) as properties
     LIMIT 50
     '''
 
@@ -153,10 +179,13 @@ async def search_nodes(q: str, node_type: Optional[str] = None):
 
         nodes = []
         for r in results:
+            labels_list = r.get('node_labels', [])
+            display_type = _map_display_type(labels_list)
+
             nodes.append(GraphNodeResponse(
                 id=r.get('id', ''),
                 name=r.get('name', ''),
-                type=label,
+                type=display_type,
                 properties=r.get('properties', {})
             ))
 
