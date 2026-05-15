@@ -24,9 +24,9 @@ export const graphApi = {
 export const queryApi = {
   ask: (data: QueryRequest) => api.post<QueryResponse>('/disassembly/plan', data),
   getHistory: (limit = 10) => api.get('/query/history', { params: { limit } }),
-  feedback: (data: { question: string; use_web_search: boolean; context: string[] }) =>
+  feedback: (data: { question: string; use_web_search: boolean }) =>
     api.post('/query/feedback', data),
-  feedbackSync: (data: { question: string; use_web_search: boolean; context: string[] }) =>
+  feedbackSync: (data: { question: string; use_web_search: boolean }) =>
     api.post<{ code: number; message: string; data: { answer: string; sources: any[] } }>('/query/feedback/sync', data),
 }
 

@@ -1,4 +1,4 @@
-from typing import Optional, List, Dict, Any
+from typing import List, Dict, Any
 
 from src.graphrag.retriever import MultiPathRetriever
 from src.graphrag.ranker import EvidenceRanker
@@ -6,7 +6,7 @@ from src.graphrag.generator import PlanGenerator
 from src.graphrag.reasoning_trace import ReasoningTrace
 from src.graphrag.depth_evaluator import DepthEvaluator
 from src.graphrag.structured_reasoning import ConfidenceResult
-from src.kg.models import EvidenceGraph
+from src.kg.models import EvidenceGraph, EvidenceNode
 from src.utils.llm_client import LLMClient
 import logging
 
@@ -35,7 +35,6 @@ class FeedbackLoop:
         evidence: EvidenceGraph,
         battery_model: str,
         intents: List[str],
-        context: Optional[list[str]] = None,
     ) -> tuple[dict, EvidenceGraph, List[ReasoningTrace]]:
         """
         反馈迭代优化。
@@ -85,7 +84,7 @@ class FeedbackLoop:
             traces.append(trace)
 
             # 6. 再生成
-            current_plan = self.generator.regenerate(query, evidence, battery_model, context)
+            current_plan = self.generator.regenerate(query, evidence, battery_model)
 
         return current_plan, evidence, traces
 
@@ -144,7 +143,17 @@ class FeedbackLoop:
         LIMIT 50
         """
         try:
-            return self.retriever.neo4j.execute(query, {"l1_ids": l1_ids})
+            results = self.retriever.neo4j.execute_query(query, {"l1_ids": l1_ids})
+            nodes = []
+            for r in results:
+                nodes.append(EvidenceNode(
+                    node_type='L2_Entity',
+                    id=r.get('id', ''),
+                    name=r.get('name', ''),
+                    properties=r,
+                    text=f"Entity: {r.get('name')}, Type: {r.get('entity_type')}, Evidence: {r.get('source_evidence', '')}"
+                ))
+            return nodes
         except Exception as e:
             logger.error(f"_get_l2_nodes failed: {e}")
             return []
@@ -162,7 +171,17 @@ class FeedbackLoop:
         LIMIT 50
         """
         try:
-            return self.retriever.neo4j.execute(query, {"l2_ids": l2_ids})
+            results = self.retriever.neo4j.execute_query(query, {"l2_ids": l2_ids})
+            nodes = []
+            for r in results:
+                nodes.append(EvidenceNode(
+                    node_type='L3_Term',
+                    id=r.get('id', ''),
+                    name=r.get('name', ''),
+                    properties=r,
+                    text=f"Term: {r.get('name')}, Definition: {r.get('definition', '')}"
+                ))
+            return nodes
         except Exception as e:
             logger.error(f"_get_l3_nodes failed: {e}")
             return []

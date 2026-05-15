@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import json
 import logging
 
@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 class FeedbackRequest(BaseModel):
     question: str
     use_web_search: bool = False
-    context: List[str] = []
 
 
 @router.post('/query/feedback')
@@ -43,8 +42,7 @@ async def query_feedback(request: FeedbackRequest):
         try:
             async for event in feedback.generate_stream(
                 question=request.question,
-                use_web_search=request.use_web_search,
-                context=request.context
+                use_web_search=request.use_web_search
             ):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
@@ -93,8 +91,7 @@ async def query_feedback_sync(request: FeedbackRequest):
     final_result = None
     async for event in feedback.generate_stream(
         question=request.question,
-        use_web_search=request.use_web_search,
-        context=request.context
+        use_web_search=request.use_web_search
     ):
         if event.get('stage') == 'done':
             final_result = event
@@ -127,14 +124,12 @@ async def query_feedback_sync(request: FeedbackRequest):
 class QueryHistoryItem(BaseModel):
     id: str
     battery_model: str
-    context: List[str]
     result_summary: str
     created_at: str
 
 
 class DisassemblyPlanRequest(BaseModel):
     battery_model: str
-    context: List[str] = []
     debug: bool = False
     mode: str = "local"
 
@@ -162,7 +157,6 @@ async def create_plan(request: DisassemblyPlanRequest):
         result = await planner.plan(
             query=f"拆卸{request.battery_model}型号电池",
             battery_model=request.battery_model,
-            context=request.context,
             mode=request.mode,
             debug=request.debug
         )

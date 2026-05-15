@@ -1,5 +1,4 @@
 from src.utils.llm_client import LLMClient
-from typing import Optional
 import logging
 import json
 import re
@@ -11,11 +10,9 @@ class QueryRewriter:
     def __init__(self, llm_client: LLMClient):
         self.llm = llm_client
     
-    def rewrite(self, original_query: str, context: Optional[list[str]] = None) -> list[str]:
-        context_str = ', '.join(context) if context else '无'
-        
+    def rewrite(self, original_query: str) -> list[str]:
+
         prompt = f'''用户查询: {original_query}
-上下文: {context_str}
 
 将查询重写为3-5个独立的检索意图，每个意图应包含:
 - 核心实体（部件/工具/文档）

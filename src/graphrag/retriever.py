@@ -88,14 +88,18 @@ class MultiPathRetriever:
         return self.neo4j.get_all_relations(battery_model)
 
     def _retrieve_documents(self, query: str, top_k: int) -> list[EvidenceNode]:
-        results = self.neo4j.search_documents(query, top_k)
+        # Priority: vector search > text search fallback
+        try:
+            results = self.neo4j.search_documents_vector(query, top_k)
+        except Exception:
+            results = self.neo4j.search_documents(query, top_k)
         return [
             EvidenceNode(
                 node_type='Document',
                 id=r.get('doc_id', ''),
-                name=r.get('title', ''),
+                name=r.get('name', '') or r.get('title', ''),
                 properties=r,
-                text=f'Document: {r.get("title")}, Source: {r.get("source_type")}'
+                text=f'Document: {r.get("name") or r.get("title")}, Source: {r.get("source_type")}'
             )
             for r in results
         ]

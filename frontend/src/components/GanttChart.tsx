@@ -1,7 +1,5 @@
 import { DisassemblyStep, ParallelBatch } from '../types'
 
-const BATCH_COLORS = ['#e8f5e9', '#e3f2fd', '#fff3e0', '#f3e5f5', '#e0f7fa', '#fbe9e7', '#f1f8e9', '#ede7f6']
-
 interface GanttChartProps {
   steps: DisassemblyStep[]
   parallelBatches?: ParallelBatch[]
@@ -28,17 +26,7 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
     )
   }
 
-  // Build stepId -> batch mapping
-    const stepToBatch = new Map<number, ParallelBatch>()
-    parallelBatches.forEach(batch => {
-      if (batch.tasks) {
-        batch.tasks.forEach(taskId => {
-          stepToBatch.set(taskId, batch)
-        })
-      }
-    })
-
-    // Calculate total time in minutes
+  // Calculate total time in minutes
     const totalTimeMinutes = parallelBatches.length > 0
       ? Math.max(...parallelBatches.map(b => b.start_time + b.duration)) / 60
       : Math.max(...steps.map(s => (s.start_time || 0) + (s.time_seconds || 0)), 1) / 60
@@ -84,25 +72,6 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
           </div>
         </div>
 
-        {/* 并行批次分组提示 */}
-        {parallelBatches.length > 1 && (
-          <div className="gantt-batch-info" style={{
-            display: 'flex', gap: '6px', flexWrap: 'wrap', padding: '6px 8px',
-            fontSize: '11px', color: '#666', borderBottom: '1px solid #e5e7eb', background: '#fafafa'
-          }}>
-            <span style={{ fontWeight: 500 }}>并行批次:</span>
-            {parallelBatches.map(b => (
-              <span key={b.batch_id} style={{
-                display: 'inline-flex', alignItems: 'center', gap: '3px',
-                padding: '1px 6px', borderRadius: '3px',
-                background: BATCH_COLORS[(b.batch_id - 1) % BATCH_COLORS.length],
-                fontSize: '11px'
-              }}>
-                Batch {b.batch_id} ({b.tasks.length}件, {(b.duration / 60).toFixed(1)}m)
-              </span>
-            ))}
-          </div>
-        )}
 
         {/* 任务行 - 每行一个任务 */}
         <div className="gantt-body">
@@ -116,7 +85,6 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
             const stepName = step.component_name || step.component
 
             const ci = step.confidence_info
-            const batch = stepToBatch.get(step.id)
 
             // 构建 tooltip 内容
             const tooltipContent = buildTooltipContent(step, durationMinutes, ci)
@@ -126,14 +94,6 @@ export function GanttChart({ steps, parallelBatches = [] }: GanttChartProps) {
                 background: 'transparent'
               }}>
                 <div className="gantt-label" title={stepName}>
-                  {batch && (
-                    <span style={{
-                      display: 'inline-block', fontSize: '10px', fontWeight: 600,
-                      color: '#666', marginRight: '4px'
-                    }}>
-                      B{batch.batch_id}
-                    </span>
-                  )}
                   {stepName}
                 </div>
                 <div className="gantt-bar-container" style={{ position: 'relative' }}>

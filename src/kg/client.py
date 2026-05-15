@@ -139,9 +139,9 @@ class Neo4jClient:
     
     def search_documents(self, query: str, top_k: int = 30) -> list[dict]:
         cypher = '''
-        MATCH (d:Document)
-        WHERE d.title CONTAINS $query OR d.content CONTAINS $query
-        RETURN d.doc_id as doc_id, d.title as title, d.source as source,
+        MATCH (d:Document|L2_Document)
+        WHERE d.title CONTAINS $query OR d.name CONTAINS $query OR d.content CONTAINS $query
+        RETURN d.doc_id as doc_id, d.name as name, d.title as title, d.source as source,
                d.source_type as source_type, d.content as content
         LIMIT $top_k
         '''
@@ -149,9 +149,9 @@ class Neo4jClient:
     
     def search_terms(self, query: str, top_k: int = 30) -> list[dict]:
         cypher = '''
-        MATCH (t:Term)
-        WHERE t.term_id CONTAINS $query OR t.definition CONTAINS $query
-        RETURN t.term_id as term_id, t.definition as definition, t.units as units
+        MATCH (t:Term|L3_Term)
+        WHERE t.term_id CONTAINS $query OR t.definition CONTAINS $query OR t.name CONTAINS $query
+        RETURN COALESCE(t.id, t.term_id) as term_id, t.name as name, t.definition as definition, t.units as units
         LIMIT $top_k
         '''
         return self.execute_query(cypher, {'query': query, 'top_k': top_k})
@@ -161,7 +161,7 @@ class Neo4jClient:
             return {'nodes': [], 'edges': []}
 
         cypher = f'''
-        MATCH path = (c:Component|L2_Entity)-[r*1..{depth}]-(related)
+        MATCH path = (c:Component|L2_Entity|Document|L2_Document|Term|L3_Term)-[r*1..{depth}]-(related)
         WHERE COALESCE(c.id, c.name) IN $node_ids
         RETURN nodes(path) as nodes, relationships(path) as rels
         '''
@@ -185,21 +185,155 @@ class Neo4jClient:
                     })
 
             for rel in record.get('rels', []):
-                if isinstance(rel, tuple) and len(rel) >= 2:
-                    start_node, relationship, end_node = rel[0], rel[1], rel[2]
-                    start_id = start_node.get('id') or start_node.get('name') if hasattr(start_node, 'get') else None
-                    rel_id = f"{start_id}-{relationship}"
-                    if rel_id not in seen_rels:
-                        seen_rels.add(rel_id)
-                        edges.append({
-                            'start': start_id,
-                            'end': end_node.get('id') or end_node.get('name') if hasattr(end_node, 'get') else None,
-                            'type': relationship if isinstance(relationship, str) else relationship.type,
-                            'properties': dict(relationship) if hasattr(relationship, 'properties') else {}
-                        })
+                # Neo4j Relationship object — use attributes, not tuple unpacking
+                try:
+                    start_node = rel.start_node
+                    end_node = rel.end_node
+                    rel_type = rel.type if hasattr(rel, 'type') else str(rel)
+                except AttributeError:
+                    continue
+                start_id = start_node.get('id') or start_node.get('name')
+                end_id = end_node.get('id') or end_node.get('name')
+                rel_id = f"{start_id}-{rel_type}-{end_id}"
+                if rel_id not in seen_rels:
+                    seen_rels.add(rel_id)
+                    edges.append({
+                        'start': start_id,
+                        'end': end_id,
+                        'type': rel_type,
+                        'properties': {}
+                    })
 
         return {'nodes': nodes, 'edges': edges}
-    
+
+    def get_l2_by_component_ids(self, l1_ids: list[str]) -> list[dict]:
+        """Get L2 entities referenced by L1 components via REFERENCE_OF"""
+        if not l1_ids:
+            return []
+        cypher = '''
+        MATCH (c:Component)-[r:REFERENCE_OF]->(e:L2_Entity)
+        WHERE c.id IN $ids
+        RETURN DISTINCT e.id as id, e.name as name, e.entity_type as entity_type,
+               e.battery_model as battery_model, e.source_evidence as source_evidence,
+               c.name as component_name
+        LIMIT 100
+        '''
+        return self.execute_query(cypher, {'ids': l1_ids})
+
+    def get_l2_neighbors(self, l2_ids: list[str]) -> list[dict]:
+        """Get all nodes related to L2 entities via any relationship."""
+        if not l2_ids:
+            return []
+        cypher = '''
+        MATCH (e:L2_Entity|L2_Document)-[r]-(neighbor)
+        WHERE e.id IN $ids
+        RETURN DISTINCT
+               COALESCE(neighbor.id, neighbor.doc_id, neighbor.term_id) as id,
+               neighbor.name as name, neighbor.definition as definition,
+               neighbor.term_id as term_id, neighbor.title as title, neighbor.doc_id as doc_id,
+               labels(neighbor) as node_labels, type(r) as rel_type,
+               e.name as entity_name, e.id as entity_id
+        LIMIT 200
+        '''
+        return self.execute_query(cypher, {'ids': l2_ids})
+
+    def _get_embedding_client(self):
+        """Lazy init OpenAI client for embeddings."""
+        if not hasattr(self, '_embed_client'):
+            from openai import OpenAI
+            import os
+            # Check for DashScope (Aliyun) API first, fall back to generic OpenAI-compatible
+            if os.getenv("DASHSCOPE_API_KEY"):
+                self._embed_client = OpenAI(
+                    api_key=os.getenv("DASHSCOPE_API_KEY"),
+                    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+                )
+            else:
+                self._embed_client = OpenAI(
+                    api_key=os.getenv("OPENAI_API_KEY"),
+                    base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+                )
+        return self._embed_client
+
+    def compute_embedding(self, text: str) -> list[float]:
+        """Generate embedding vector for text using DashScope or fallback."""
+        client = self._get_embedding_client()
+        import os
+        if os.getenv("DASHSCOPE_API_KEY"):
+            model = "text-embedding-v4"
+            response = client.embeddings.create(
+                model=model,
+                input=text[:8000],
+                dimensions=1536
+            )
+        else:
+            model = "text-embedding-3-small"
+            response = client.embeddings.create(
+                model=model,
+                input=text[:8000]
+            )
+        return response.data[0].embedding
+
+    def search_documents_vector(self, query_text: str, top_k: int = 10) -> list[dict]:
+        """Vector semantic search on Document/L2_Document content."""
+        try:
+            query_vector = self.compute_embedding(query_text)
+            cypher = '''
+            CALL db.index.vector.queryNodes('doc_embedding_idx', $top_k, $query_vector)
+            YIELD node AS d, score
+            RETURN d.doc_id as doc_id, d.name as name, d.title as title,
+                   d.source as source, d.source_type as source_type,
+                   d.content as content, score
+            ORDER BY score DESC
+            '''
+            return self.execute_query(cypher, {
+                'top_k': top_k,
+                'query_vector': query_vector
+            })
+        except Exception as e:
+            logger.warning(f"Vector search failed, falling back to text: {e}")
+            return []
+
+    def build_document_embeddings(self, batch_size: int = 5) -> dict:
+        """Generate and store embeddings for documents without them.
+        Returns {created: int, skipped: int, errors: int}."""
+        # Find documents without embeddings
+        cypher = '''
+        MATCH (d:L2_Document|Document)
+        WHERE d.embedding IS NULL AND d.content IS NOT NULL
+        RETURN d.doc_id as doc_id, d.content as content
+        '''
+        docs = self.execute_query(cypher, {})
+
+        created = 0
+        skipped = 0
+        errors = 0
+
+        for doc in docs:
+            doc_id = doc.get('doc_id', '')
+            content = doc.get('content', '')
+            if not content:
+                skipped += 1
+                continue
+            try:
+                embedding = self.compute_embedding(content)
+                update_cypher = '''
+                MATCH (d {doc_id: $doc_id})
+                WHERE d:L2_Document OR d:Document
+                SET d.embedding = $embedding
+                '''
+                self.execute_query(update_cypher, {
+                    'doc_id': doc_id,
+                    'embedding': embedding
+                })
+                created += 1
+                logger.info(f'Embedding created for doc {doc_id}')
+            except Exception as e:
+                logger.error(f'Failed to create embedding for {doc_id}: {e}')
+                errors += 1
+
+        return {'created': created, 'skipped': skipped, 'errors': errors}
+
     def get_battery_model_components(self, battery_model: str) -> list[dict]:
         cypher = '''
         MATCH (c:Component {battery_model: $model})

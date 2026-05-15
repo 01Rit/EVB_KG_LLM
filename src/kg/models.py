@@ -50,7 +50,11 @@ class EvidenceGraph(BaseModel):
                 self.nodes.append(node)
     
     def to_text(self) -> str:
-        texts = []
+        lines = []
         for node in self.nodes:
-            texts.append(f'[{node.node_type}: {node.name}] - {node.text}')
-        return '\n\n'.join(texts)
+            lines.append(f'[{node.node_type}: {node.name}] - {node.text}')
+        if self.edges:
+            lines.append('\n--- Relations ---')
+            for edge in self.edges[:50]:
+                lines.append(f'  {edge["start"]} --[{edge["type"]}]--> {edge["end"]}')
+        return '\n'.join(lines)

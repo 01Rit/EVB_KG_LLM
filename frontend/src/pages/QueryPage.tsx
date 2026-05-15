@@ -1,13 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { MarkdownRenderer } from '../components/MarkdownRenderer'
 
-const CONTEXT_OPTIONS = [
-  '室温环境',
-  '低湿度',
-  '开阔空间',
-  '专业工具齐全',
-]
-
 const PROGRESS_STAGES = [
   { key: 'understanding', label: '理解问题' },
   { key: 'retrieving_local', label: '检索本地知识库' },
@@ -23,7 +16,6 @@ export function QueryPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [queryHistory, setQueryHistory] = useState<string[]>([])
   const [showHistory, setShowHistory] = useState(false)
-  const [context, setContext] = useState<string[]>([])
   const [debug, setDebug] = useState(false)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<string | null>(null)
@@ -95,7 +87,6 @@ export function QueryPage() {
         body: JSON.stringify({
           question: queryText,
           use_web_search: useWebSearch,
-          context,
         }),
       })
 
@@ -275,30 +266,6 @@ export function QueryPage() {
             >
               本地+联网
             </button>
-          </div>
-        </div>
-
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold' }}>
-            工作环境（可多选）
-          </label>
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            {CONTEXT_OPTIONS.map(option => (
-              <label key={option} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <input
-                  type="checkbox"
-                  checked={context.includes(option)}
-                  onChange={() => {
-                    setContext(prev =>
-                      prev.includes(option)
-                        ? prev.filter(c => c !== option)
-                        : [...prev, option]
-                    )
-                  }}
-                />
-                {option}
-              </label>
-            ))}
           </div>
         </div>
 

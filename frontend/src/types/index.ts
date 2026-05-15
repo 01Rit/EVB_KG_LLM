@@ -13,7 +13,6 @@ export interface GraphEdge {
 
 export interface QueryRequest {
   battery_model: string
-  context: string[]
   debug: boolean
   mode?: 'local' | 'global'
 }

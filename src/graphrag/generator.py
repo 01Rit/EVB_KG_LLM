@@ -1,7 +1,6 @@
 from src.utils.llm_client import LLMClient
 from src.kg.models import EvidenceGraph
 from src.utils.tokenizer import encode_string_by_tiktoken, tokens_to_text
-from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,16 +21,13 @@ class PlanGenerator:
         return tokens_to_text(tokens[:max_tokens])
     
     def generate(self, query: str, evidence: EvidenceGraph,
-                 battery_model: str, context: Optional[list[str]] = None,
-                 kg_context: str = None) -> dict:
-        context_str = ', '.join(context) if context else '无'
+                 battery_model: str, kg_context: str = None) -> dict:
         evidence_text = self._truncate_evidence(evidence)
         kg_info = kg_context if kg_context else evidence_text
 
         prompt = f'''任务: 为电池型号 {battery_model} 生成拆卸方案
 
 用户查询: {query}
-工作环境上下文: {context_str}
 
 {kg_info}
 
@@ -93,6 +89,6 @@ class PlanGenerator:
             logger.error(f'Plan generation failed: {e}')
             return {'error': str(e), 'steps': []}
     
-    def regenerate(self, query: str, evidence: EvidenceGraph, 
-                   battery_model: str, context: Optional[list[str]] = None) -> dict:
-        return self.generate(query, evidence, battery_model, context)
+    def regenerate(self, query: str, evidence: EvidenceGraph,
+                   battery_model: str) -> dict:
+        return self.generate(query, evidence, battery_model)

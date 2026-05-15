@@ -184,7 +184,6 @@ export function SequencePlanner() {
         sequenceApi.getSequence(batteryModel),
         queryApi.ask({
           battery_model: batteryModel,
-          context: [],
           debug,
         })
       ])
@@ -206,6 +205,34 @@ export function SequencePlanner() {
             step.time_seconds = llmTimeMap.get(name)
           }
         }
+      }
+
+      // 为拓扑排序步骤计算甘特图位置（基于 parallel_groups）
+      if (topoRes && topoRes.data && topoRes.data.steps && topoRes.data.parallel_groups) {
+        const groups = topoRes.data.parallel_groups
+        // 构建 component key -> step 的映射（同时用 ID 和名称）
+        const keyToStep = new Map<string, any>()
+        topoRes.data.steps.forEach((step: any) => {
+          if (step.component) keyToStep.set(step.component, step)
+          if (step.component_name && step.component_name !== step.component) {
+            keyToStep.set(step.component_name, step)
+          }
+        })
+
+        let cumulativeTime = 0
+        groups.forEach((group: string[]) => {
+          const groupSteps = group
+            .map((key: string) => keyToStep.get(key))
+            .filter(Boolean)
+          const groupMaxTime = Math.max(...groupSteps.map((s: any) => s.time_seconds || 0), 0)
+
+          groupSteps.forEach((step: any) => {
+            step.start_time = cumulativeTime
+            step.duration = step.time_seconds
+          })
+
+          cumulativeTime += groupMaxTime
+        })
       }
 
       setProgress({
@@ -336,6 +363,12 @@ export function SequencePlanner() {
               badge="llm"
               steps={llmResult.steps}
               showReasoningChain={true}
+              parallelGroups={llmResult.parallel_batches?.map(batch =>
+                batch.tasks.map(taskId => {
+                  const step = llmResult.steps?.find(s => s.id === taskId)
+                  return step?.component || step?.component_name || String(taskId)
+                })
+              )}
             />
           )}
 

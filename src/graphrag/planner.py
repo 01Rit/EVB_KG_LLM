@@ -1,4 +1,3 @@
-from typing import Optional
 from src.graphrag.query_rewriter import QueryRewriter
 from src.graphrag.retriever import MultiPathRetriever
 from src.graphrag.ranker import EvidenceRanker
@@ -132,19 +131,19 @@ class Planner:
         scorer = RemanufacturingScorer()
         return scorer.score_all_steps(steps, battery_model)
     
-    async def plan(self, query: str, battery_model: str, context: Optional[list[str]] = None,
+    async def plan(self, query: str, battery_model: str,
                    mode: str = "local", debug: bool = False) -> dict:
         """Execute planning query.
-        
+
         Args:
             mode: "local" for entity-focused retrieval, "global" for community-based Map-Reduce
         """
         if mode == "global":
-            return await self._plan_global(query, battery_model, context, debug)
-        return await self._plan_local(query, battery_model, context, debug)
+            return await self._plan_global(query, battery_model, debug)
+        return await self._plan_local(query, battery_model, debug)
 
     async def _plan_global(self, query: str, battery_model: str,
-                          context: Optional[list[str]], debug: bool) -> dict:
+                          debug: bool) -> dict:
         """Global query using community detection and Map-Reduce."""
         if not self.global_engine:
             return {'code': 1, 'message': 'Global query not available', 'data': {}}
@@ -172,7 +171,7 @@ class Planner:
         return response
 
     async def _plan_local(self, query: str, battery_model: str,
-                          context: Optional[list[str]], debug: bool) -> dict:
+                          debug: bool) -> dict:
         """Local query using entity-focused retrieval."""
         trace = {'timing': {}} if debug else None
         
@@ -181,7 +180,7 @@ class Planner:
             trace['start_time'] = start
         
         try:
-            rewritten_intents = self.rewriter.rewrite(query, context)
+            rewritten_intents = self.rewriter.rewrite(query)
             if not rewritten_intents:
                 rewritten_intents = [query]
         except Exception as e:
@@ -245,7 +244,7 @@ class Planner:
             ranked_evidence = []
         
         start = time.time()
-        initial_plan = self.generator.generate(query, evidence_graph, battery_model, context, kg_context)
+        initial_plan = self.generator.generate(query, evidence_graph, battery_model, kg_context)
 
         # 新增：证据追溯
         from src.graphrag.evidence_tracer import EvidenceTracer
@@ -259,7 +258,7 @@ class Planner:
         
         start = time.time()
         final_plan, evidence_graph, reasoning_traces = await self.feedback.refine(
-            query, initial_plan, evidence_graph, battery_model, rewritten_intents, context
+            query, initial_plan, evidence_graph, battery_model, rewritten_intents
         )
 
         steps = final_plan.get('steps', [])
@@ -338,7 +337,8 @@ class Planner:
 
 
 def compute_parallel_batches(steps):
-    """调度任务：考虑depends_on依赖 + 资源约束（人类串行，机器人串行）
+    """调度任务：纯依赖驱动，只根据 depends_on 决定先后顺序。
+    没有依赖关系的任务自动并行，不管资源类型。
 
     返回 ParallelBatch[] 格式，而非 steps[]
     """
@@ -347,20 +347,16 @@ def compute_parallel_batches(steps):
 
     sorted_steps = sorted(steps, key=lambda s: s.get('id', 0))
 
-    human_time = 0
-    robot_time = 0
-
     logger.info(f"compute_parallel_batches: scheduling {len(sorted_steps)} steps")
+
+    # 第一轮：为每个 step 计算基于依赖的开始时间
     for step in sorted_steps:
         duration = step.get('time_seconds', 0)
-        assignee = step.get('assignee') or 'human'
         deps = step.get('depends_on', [])
 
         step_name = step.get('component_name') or step.get('component', '')
-        logger.info(f"  step id={step.get('id')} name={step_name} "
-                     f"assignee={assignee} duration={duration}s deps={deps}")
 
-        # 计算依赖完成时间
+        # 计算所有前置依赖的最大完成时间
         dep_end_time = 0
         for dep_id in deps:
             dep_step = next(
@@ -368,23 +364,14 @@ def compute_parallel_batches(steps):
                 None
             )
             if dep_step:
-                dep_end = dep_step.get('start_time', 0) + dep_step.get('time_seconds', 0)
+                dep_end = dep_step.get('start_time', 0) + dep_step.get('duration', dep_step.get('time_seconds', 0))
                 dep_end_time = max(dep_end_time, dep_end)
 
-        if assignee == 'robot':
-            start_time = max(robot_time, dep_end_time)
-            step['start_time'] = start_time
-            robot_time = start_time + duration
-        else:  # human
-            start_time = max(human_time, dep_end_time)
-            step['start_time'] = start_time
-            human_time = start_time + duration
-
+        step['start_time'] = dep_end_time
         step['duration'] = duration
-        logger.info(f"    -> start_time={step['start_time']}s "
-                     f"human_time={human_time}s robot_time={robot_time}s")
+        logger.info(f"  step id={step.get('id')} name={step_name} "
+                     f"duration={duration}s deps={deps} start_time={dep_end_time}s")
 
-    # 构建真正的并行批次
     # 按 start_time 分组，同一时刻开始的任务组成一个批次
     batches = []
     batch_map = {}  # start_time -> batch_index
@@ -405,6 +392,6 @@ def compute_parallel_batches(steps):
 
     logger.info(f"compute_parallel_batches: {len(batches)} batches from {len(sorted_steps)} steps")
     for b in batches:
-        logger.info(f"  batch {b['batch_id']}: {len(b['tasks'])} tasks at {b['start_time']}s")
+        logger.info(f"  batch {b['batch_id']}: {len(b['tasks'])} tasks at {b['start_time']}s duration={b['duration']}s")
 
     return batches
