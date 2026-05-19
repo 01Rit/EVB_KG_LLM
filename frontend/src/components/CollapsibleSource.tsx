@@ -4,6 +4,7 @@ interface SourceData {
   type: string
   name: string
   snippet?: string
+  url?: string
 }
 
 interface CollapsibleSourceProps {
@@ -46,6 +47,14 @@ export function CollapsibleSource({ source, defaultCollapsed = true }: Collapsib
           color: 'var(--color-text-secondary)',
         }}>
           {source.snippet}
+          {source.url && (
+            <div style={{ marginTop: 8 }}>
+              <a href={source.url} target="_blank" rel="noopener noreferrer"
+                 style={{ color: '#1677ff', textDecoration: 'underline' }}>
+                查看原文 ↗
+              </a>
+            </div>
+          )}
         </div>
       )}
     </div>

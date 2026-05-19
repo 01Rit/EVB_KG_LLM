@@ -1,13 +1,13 @@
 version: '3.8'
 
-# 动力电池拆卸知识图谱推理系统 v1.25
+# 动力电池拆卸知识图谱推理系统 v1.5
 
 services:
   frontend:
     build: ./frontend
-    image: kg-frontend:1.25
+    image: kg-frontend:1.5
     ports:
-      - "9333:3000"
+      - "3090:3000"
     depends_on:
       - backend
     networks:
@@ -18,12 +18,13 @@ services:
       context: .
       dockerfile: backend/Dockerfile
       labels:
-        version: "1.25"
-    image: kg-backend:1.25
+        version: "1.5"
+    image: kg-backend:1.5
     ports:
       - "50060:8000"
     volumes:
       - ./config.yaml:/app/config.yaml:ro
+      - ./.tiktoken_cache:/app/.tiktoken_cache:ro
     depends_on:
       - neo4j
     environment:
@@ -34,6 +35,8 @@ services:
       - OPENAI_API_KEY=sk-GNFFv3jfsoVCDDWCA15875E0De4140B99c3aF15a7400422b
       - OPENAI_BASE_URL=http://host.docker.internal:4567/v1
       - LLM_MODEL=deepseek-chat
+      - TIKTOKEN_CACHE_DIR=/app/.tiktoken_cache
+      - SERPER_API_KEY=${SERPER_API_KEY}
     networks:
       - app-network
 

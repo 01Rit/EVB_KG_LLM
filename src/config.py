@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ''
     openai_base_url: str = 'https://api.openai.com/v1'
     llm_model: str = 'gpt-4o'
+    serper_api_key: str = ''
     log_level: str = 'INFO'
 
     temperature: float = 0.1
@@ -41,6 +42,7 @@ def load_settings():
         openai_base_url=os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
         llm_model=os.getenv('LLM_MODEL', 'gpt-4o'),
         max_tokens=int(os.getenv('MAX_TOKENS', '2000')),
+        serper_api_key=os.getenv('SERPER_API_KEY', ''),
         log_level=os.getenv('LOG_LEVEL', 'INFO'),
     )
 

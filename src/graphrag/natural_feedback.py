@@ -25,11 +25,11 @@ class NaturalLanguageFeedback:
     ]
 
     def __init__(self, retriever: MultiPathRetriever, ranker: EvidenceRanker,
-                 llm_client: LLMClient):
+                 llm_client: LLMClient, serper_api_key: str = ""):
         self.retriever = retriever
         self.ranker = ranker
         self.llm = llm_client
-        self.web_searcher = WebSearcher()
+        self.web_searcher = WebSearcher(api_key=serper_api_key, verify_ssl=False)
 
     async def generate_stream(
         self,
@@ -56,12 +56,38 @@ class NaturalLanguageFeedback:
         yield {"stage": "generating", "progress": 0.8, "message": self.PROGRESS_STAGES[4][1]}
         answer = await self._generate_answer(question, ranked_evidence, web_results)
 
-        yield {"stage": "done", "progress": 1.0, "message": self.PROGRESS_STAGES[5][1], "answer": answer}
+        # Build structured sources for frontend display
+        sources = []
+        for e in ranked_evidence[:20]:
+            source_type = getattr(e, 'node_type', 'Unknown')
+            name = getattr(e, 'name', '')
+            text = getattr(e, 'text', '')
+            sources.append({
+                "type": f"本地KG-{source_type}",
+                "name": name or "",
+                "snippet": text if text else "",
+            })
+        for r in web_results[:5]:
+            sources.append({
+                "type": "联网搜索",
+                "name": r.get('title', ''),
+                "snippet": r.get('snippet', ''),
+                "url": r.get('url', ''),
+            })
+
+        yield {"stage": "done", "progress": 1.0, "message": self.PROGRESS_STAGES[5][1], "answer": answer, "sources": sources}
 
     def generate_sync(self, question: str, use_web_search: bool = False) -> Dict[str, Any]:
         """同步生成回答（内部使用）"""
         import asyncio
-        return asyncio.run(self.generate_stream(question, use_web_search).__anext__())
+
+        async def _collect():
+            last = {}
+            async for event in self.generate_stream(question, use_web_search):
+                last = event
+            return last
+
+        return asyncio.run(_collect())
 
     def _rewrite_query(self, question: str) -> List[str]:
         """重写查询为多个子查询"""

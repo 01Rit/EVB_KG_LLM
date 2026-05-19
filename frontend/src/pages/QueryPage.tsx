@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { MarkdownRenderer } from '../components/MarkdownRenderer'
+import { CollapsibleSource } from '../components/CollapsibleSource'
 
 const PROGRESS_STAGES = [
   { key: 'understanding', label: '理解问题' },
@@ -19,7 +20,7 @@ export function QueryPage() {
   const [debug, setDebug] = useState(false)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<string | null>(null)
-  const [sources, setSources] = useState<Array<{ type: string; name: string }>>([])
+  const [sources, setSources] = useState<Array<{ type: string; name: string; snippet?: string; url?: string }>>([])
   const [useWebSearch, setUseWebSearch] = useState(false)
   const [progress, setProgress] = useState<{ stage: string; progress: number; message: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -107,6 +108,7 @@ export function QueryPage() {
               }
               if (data.stage === 'done') {
                 setResult(data.answer || '')
+                setSources(data.sources || [])
                 setProgress({ stage: 'done', progress: 1, message: '完成' })
                 addToHistory(queryText)
               } else {
@@ -278,12 +280,10 @@ export function QueryPage() {
 
           {sources.length > 0 && (
             <div className="mb-lg">
-              <div className="text-sm font-bold mb-md">参考来源</div>
-              <div className="flex gap-sm flex-wrap">
+              <div className="text-sm font-bold mb-md">参考来源 ({sources.length})</div>
+              <div className="flex flex-col gap-sm">
                 {sources.map((source, i) => (
-                  <span key={i} className="badge badge-gray">
-                    {source.type}: {source.name}
-                  </span>
+                  <CollapsibleSource key={i} source={source} defaultCollapsed={true} />
                 ))}
               </div>
             </div>

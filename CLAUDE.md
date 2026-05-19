@@ -155,7 +155,7 @@ Python imports in tests are relative to project root, not `src/`.
 ---
 
 ## Ports (docker-compose host mappings)
-- Frontend: 9333 (container 3000)
+- Frontend: 3090 (container 3000)
 - Backend API: 8000
 - Neo4j Browser: 17474
 - Neo4j Bolt: 17687

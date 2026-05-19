@@ -36,7 +36,7 @@ async def query_feedback(request: FeedbackRequest):
 
     retriever = MultiPathRetriever(neo4j, milvus)
     ranker = EvidenceRanker()
-    feedback = NaturalLanguageFeedback(retriever, ranker, llm)
+    feedback = NaturalLanguageFeedback(retriever, ranker, llm, serper_api_key=settings.serper_api_key)
 
     async def event_generator():
         try:
@@ -86,7 +86,7 @@ async def query_feedback_sync(request: FeedbackRequest):
 
     retriever = MultiPathRetriever(neo4j, milvus)
     ranker = EvidenceRanker()
-    feedback = NaturalLanguageFeedback(retriever, ranker, llm)
+    feedback = NaturalLanguageFeedback(retriever, ranker, llm, serper_api_key=settings.serper_api_key)
 
     final_result = None
     async for event in feedback.generate_stream(
@@ -99,15 +99,8 @@ async def query_feedback_sync(request: FeedbackRequest):
     neo4j.close()
 
     if final_result:
-        sources = []
         answer = final_result.get('answer', '')
-        import re
-        source_pattern = r'【来源：([^】]+)】'
-        matches = re.findall(source_pattern, answer)
-        for m in matches:
-            parts = m.split(':')
-            if len(parts) >= 2:
-                sources.append({'type': parts[0], 'name': parts[1]})
+        sources = final_result.get('sources', [])
 
         return {
             'code': 0,
