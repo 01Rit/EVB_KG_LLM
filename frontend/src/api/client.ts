@@ -87,4 +87,37 @@ export const importApi = {
   getStatus: () => api.get('/import/status'),
 }
 
+export const evaluationApi = {
+  // Rules
+  createRule: (data: any) => api.post('/evaluation/rules', data),
+  listRules: (status?: string) => api.get('/evaluation/rules', { params: status ? { status } : {} }),
+  getRule: (id: string) => api.get(`/evaluation/rules/${id}`),
+  updateRule: (id: string, data: any) => api.put(`/evaluation/rules/${id}`, data),
+  deleteRule: (id: string) => api.delete(`/evaluation/rules/${id}`),
+
+  // Versions
+  createVersion: (data: any) => api.post('/evaluation/versions', data),
+  listVersions: () => api.get('/evaluation/versions'),
+  getVersion: (id: string) => api.get(`/evaluation/versions/${id}`),
+
+  // Assessment
+  assess: (versionId: string) => api.post('/evaluation/assess', { version_id: versionId }),
+  getAssessment: (id: string) => api.get(`/evaluation/assessments/${id}`),
+  getFeedbackText: (id: string) => api.post(`/evaluation/assessments/${id}/feedback-text`),
+  submitExpertFeedback: (assessmentId: string, data: any) =>
+    api.post(`/evaluation/assessments/${assessmentId}/feedback`, data),
+  generateActions: (assessmentId: string) =>
+    api.post(`/evaluation/assessments/${assessmentId}/optimize`),
+  applyActions: (data: any) => api.post('/evaluation/actions/apply', data),
+
+  // Prediction
+  predict: (data: any) => api.post('/evaluation/predict', data),
+
+  // Import
+  extractRules: (docIds: string[]) => api.post('/evaluation/import/extract', { doc_ids: docIds }),
+  listCandidates: () => api.get('/evaluation/import/candidates'),
+  approveCandidate: (id: string) => api.post(`/evaluation/import/approve/${id}`),
+  rejectCandidate: (id: string) => api.post(`/evaluation/import/reject/${id}`),
+};
+
 export default api

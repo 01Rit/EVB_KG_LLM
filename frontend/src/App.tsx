@@ -7,6 +7,7 @@ import { QueryPage } from './pages/QueryPage'
 import { SequencePlanner } from './pages/SequencePlanner'
 import { ImportManager } from './pages/ImportManager'
 import { Settings } from './pages/Settings'
+import EvaluationPage from './pages/EvaluationPage'
 
 const queryClient = new QueryClient()
 
@@ -22,6 +23,7 @@ export default function App() {
             <Route path="sequence" element={<SequencePlanner />} />
             <Route path="import" element={<ImportManager />} />
             <Route path="settings" element={<Settings />} />
+            <Route path="evaluation" element={<EvaluationPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

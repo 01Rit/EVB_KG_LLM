@@ -6,6 +6,7 @@ const navItems = [
   { path: '/query', label: '推理查询', icon: '🔍' },
   { path: '/sequence', label: '序列规划', icon: '⚡' },
   { path: '/import', label: '导入管理', icon: '📥' },
+  { path: '/evaluation', label: '可拆卸性评价', icon: '📋' },
   { path: '/settings', label: '参数设置', icon: '⚙️' },
 ]
 
