@@ -88,8 +88,13 @@ class VersionManager:
 
     def _build_subgraph(self, component_ids: list[str], connection_ids: list[str]) -> dict:
         nodes = []
+        relationships = []
         for cid in component_ids:
             nodes.append({"id": cid, "labels": ["L1_Component"], "name": cid})
         for cid in connection_ids:
             nodes.append({"id": cid, "labels": ["ConnectionType"], "name": cid})
-        return {"nodes": nodes, "relationships": []}
+        # Create USES_CONNECTION from each component to each connection
+        for comp_id in component_ids:
+            for conn_id in connection_ids:
+                relationships.append({"start": comp_id, "end": conn_id, "type": "USES_CONNECTION"})
+        return {"nodes": nodes, "relationships": relationships}

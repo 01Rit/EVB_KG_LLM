@@ -1,11 +1,11 @@
 version: '3.8'
 
-# 动力电池拆卸知识图谱推理系统 v1.5
+# 动力电池拆卸知识图谱推理系统 v2.0
 
 services:
   frontend:
     build: ./frontend
-    image: kg-frontend:1.5
+    image: kg-frontend:2.0
     ports:
       - "3090:3000"
     depends_on:
@@ -18,12 +18,12 @@ services:
       context: .
       dockerfile: backend/Dockerfile
       labels:
-        version: "1.5"
-    image: kg-backend:1.5
+        version: "2.0"
+    image: kg-backend:2.0
     ports:
       - "50060:8000"
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - ./config.yaml:/app/config.yaml:rw
       - ./.tiktoken_cache:/app/.tiktoken_cache:ro
     depends_on:
       - neo4j

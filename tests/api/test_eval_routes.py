@@ -3,27 +3,29 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 
-from src.evaluation.models import L4RuleCreate, L4RuleCondition, Grade, RuleStatus
-
 
 @pytest.fixture
 def client():
-    # Patch the Neo4j client and its dependencies before import
     with patch("src.api.eval_routes.Neo4jClient") as mock_neo4j_cls, \
+         patch("src.api.eval_routes.LLMClient") as mock_llm_cls, \
          patch("src.api.eval_routes.settings") as mock_settings:
         mock_settings.neo4j_uri = "bolt://localhost:7687"
         mock_settings.neo4j_user = "neo4j"
         mock_settings.neo4j_password = "test"
+        mock_settings.openai_api_key = "sk-test"
+        mock_settings.openai_base_url = "http://localhost:8080"
+        mock_settings.llm_model = "test-model"
 
         mock_neo4j = MagicMock()
         mock_neo4j.execute_query.return_value = []
         mock_neo4j_cls.return_value = mock_neo4j
+        mock_llm_cls.return_value = MagicMock()
 
-        from src.api.eval_routes import router, rule_engine
+        from src.api.eval_routes import router, closed_loop
         from fastapi import FastAPI
 
         # Clear rules between tests
-        rule_engine._rules.clear()
+        closed_loop.rule_engine._rules.clear()
 
         app = FastAPI()
         app.include_router(router)
@@ -131,11 +133,11 @@ class TestRuleCRUD:
         assert resp.status_code == 404
 
 
-# ── Evaluation Tests ──
+# ── Assessment Tests ──
 
 
-class TestEvaluation:
-    def test_evaluate_design(self, client):
+class TestAssessment:
+    def test_assess_version(self, client):
         # Create a rule first
         client.post("/api/v1/evaluation/rules", json={
             "name": "螺栓易拆",
@@ -146,42 +148,75 @@ class TestEvaluation:
             ],
         })
 
-        subgraph = {
-            "nodes": [
-                {"id": "n1", "name": "电池外壳", "label": "Component"},
-                {"id": "n2", "name": "螺栓连接", "label": "Connection"},
-            ],
-            "relationships": [
-                {"start": "n1", "end": "n2", "type": "USES_CONNECTION"},
-            ],
-        }
-        resp = client.post("/api/v1/evaluation/evaluate", json={
-            "version_id": "v1",
-            "subgraph": subgraph,
+        # Create a version with component/connection IDs
+        resp = client.post("/api/v1/evaluation/versions", json={
+            "design_name": "Audi A3",
+            "component_ids": ["电池外壳"],
+            "connection_ids": ["螺栓连接"],
         })
+        version_id = resp.json()["data"]["version_id"]
+
+        # Assess
+        resp = client.post("/api/v1/evaluation/assess", json={"version_id": version_id})
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["overall_score"] == 0.8
         assert data["overall_grade"] == "高"
         assert len(data["rule_matches"]) == 1
 
-    def test_evaluate_no_rules(self, client):
-        resp = client.post("/api/v1/evaluation/evaluate", json={
-            "version_id": "v1",
+    def test_get_assessment(self, client):
+        # Create version and assess
+        client.post("/api/v1/evaluation/rules", json={
+            "name": "r1", "conclusion_score": 0.5, "conclusion_grade": "中",
+        })
+        resp = client.post("/api/v1/evaluation/versions", json={
+            "design_name": "test", "version_number": 1,
             "subgraph": {"nodes": [], "relationships": []},
+        })
+        version_id = resp.json()["data"]["version_id"]
+        assess_resp = client.post("/api/v1/evaluation/assess", json={"version_id": version_id})
+        assessment_id = assess_resp.json()["data"]["assessment_id"]
+
+        resp = client.get(f"/api/v1/evaluation/assessments/{assessment_id}")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["assessment_id"] == assessment_id
+
+
+# ── Version Tests ──
+
+
+class TestVersions:
+    def test_create_version(self, client):
+        resp = client.post("/api/v1/evaluation/versions", json={
+            "design_name": "Audi A3",
         })
         assert resp.status_code == 200
         data = resp.json()["data"]
-        assert data["overall_score"] == 0.0
+        assert data["design_name"] == "Audi A3"
+        assert data["version_id"].startswith("v_")
+
+    def test_list_versions(self, client):
+        resp = client.get("/api/v1/evaluation/versions")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["total"] >= 0
+
+    def test_get_version(self, client):
+        resp = client.post("/api/v1/evaluation/versions", json={
+            "design_name": "test",
+        })
+        vid = resp.json()["data"]["version_id"]
+        resp = client.get(f"/api/v1/evaluation/versions/{vid}")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["version_id"] == vid
 
 
-# ── Feedback Tests ──
+# ── Predict Tests ──
 
 
-class TestFeedback:
-    def test_generate_feedback(self, client):
+class TestPredict:
+    def test_predict_design(self, client):
         client.post("/api/v1/evaluation/rules", json={
-            "name": "r1",
+            "name": "螺栓易拆",
             "conclusion_score": 0.8,
             "conclusion_grade": "高",
             "conditions": [
@@ -189,26 +224,24 @@ class TestFeedback:
             ],
         })
 
-        assessment = {
-            "assessment_id": "assess_001",
-            "version_id": "v1",
-            "overall_score": 0.5,
-            "overall_grade": "中",
-            "rule_matches": [
-                {
-                    "rule_id": "rule_xxx",
-                    "rule_name": "r1",
-                    "matched": False,
-                    "score_contribution": 0.0,
-                    "reason": "not matched",
-                },
-            ],
-            "feedback_text": "test",
-            "status": "pending_review",
-        }
-        resp = client.post("/api/v1/evaluation/feedback", json=assessment)
+        resp = client.post("/api/v1/evaluation/predict", json={
+            "connection_types": ["螺栓连接"],
+            "tool_requirements": [],
+            "structure_features": [],
+        })
         assert resp.status_code == 200
         data = resp.json()["data"]
-        assert "summary" in data
-        assert "suggestions" in data
-        assert "risks" in data
+        assert data["predicted_score"] == 0.8
+        assert data["predicted_grade"] == "高"
+        assert len(data["matched_rules"]) == 1
+        assert data["risk_factors"] == []
+
+    def test_predict_no_rules(self, client):
+        resp = client.post("/api/v1/evaluation/predict", json={
+            "connection_types": ["螺栓连接"],
+            "tool_requirements": [],
+            "structure_features": [],
+        })
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["predicted_score"] == 0.0
