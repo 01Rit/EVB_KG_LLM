@@ -113,6 +113,15 @@ export const evaluationApi = {
   // Prediction
   predict: (data: any) => api.post('/evaluation/predict', data),
 
+  // Batch Assessment
+  batchAssess: (versionIds: string[]) =>
+    api.post('/evaluation/batch-assess', { version_ids: versionIds }),
+
+  // Grade Config
+  getGradeConfig: () => api.get('/evaluation/grade-config'),
+  updateGradeConfig: (config: any) => api.put('/evaluation/grade-config', config),
+  calibrateThresholds: () => api.post('/evaluation/grade-config/calibrate'),
+
   // Import
   extractRules: (docIds: string[]) => api.post('/evaluation/import/extract', { doc_ids: docIds }),
   listCandidates: () => api.get('/evaluation/import/candidates'),
