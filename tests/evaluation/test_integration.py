@@ -5,7 +5,7 @@ from src.evaluation.models import (
     DesignVersionCreate, L4RuleCreate, L4RuleCondition,
     ExpertFeedbackCreate, Grade, FeedbackType, ActionOperation,
     ActionStatus, AssessmentStatus, OptimizationActionCreate,
-    VersionStatus,
+    VersionStatus, GradeConfig,
 )
 
 
@@ -439,3 +439,221 @@ class TestFeedbackRoundtrip:
         feedbacks = system.get_feedbacks(assessment.assessment_id)
         assert len(feedbacks) == 1
         assert feedbacks[0].expert_name == "Dr. Wang"
+
+
+# -------------------------------------------------------------------
+# 7. Multi-dimensional evaluation: rules in different dimensions -> dimension_scores
+# -------------------------------------------------------------------
+
+class TestMultiDimensionalEvaluation:
+    def test_dimension_scores_in_assessment(self, system):
+        """Rules in different dimensions produce dimension_scores."""
+        system.rule_engine.create_rule(L4RuleCreate(
+            name="螺栓易拆",
+            conclusion_score=0.85,
+            conclusion_grade=Grade.GOOD,
+            dimension="technical",
+            weight=1.0,
+            conditions=[L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接")],
+        ))
+        system.rule_engine.create_rule(L4RuleCreate(
+            name="回收价值高",
+            conclusion_score=0.7,
+            conclusion_grade=Grade.GOOD,
+            dimension="economic",
+            weight=1.0,
+            conditions=[L4RuleCondition(condition_type="REQUIRES_TOOL", target_label="标准扳手")],
+        ))
+        system.rule_engine.create_rule(L4RuleCreate(
+            name="废料少",
+            conclusion_score=0.6,
+            conclusion_grade=Grade.QUALIFIED,
+            dimension="environmental",
+            weight=1.0,
+            conditions=[L4RuleCondition(condition_type="REQUIRES_STRUCTURE", target_label="模块化设计")],
+        ))
+
+        subgraph = {
+            "nodes": [
+                {"id": "c1", "labels": ["L1_Component"], "name": "电池外壳"},
+                {"id": "bolt", "labels": ["ConnectionType"], "name": "螺栓连接"},
+                {"id": "wrench", "labels": ["Tool"], "name": "标准扳手"},
+                {"id": "modular", "labels": ["StructureFeature"], "name": "模块化设计"},
+            ],
+            "relationships": [
+                {"start": "c1", "end": "bolt", "type": "USES_CONNECTION"},
+                {"start": "c1", "end": "wrench", "type": "REQUIRES_TOOL"},
+                {"start": "c1", "end": "modular", "type": "HAS_FEATURE"},
+            ],
+        }
+        version = _setup_version(system, subgraph)
+        assessment = system.reason(version.version_id)
+
+        # Verify dimension scores exist
+        assert len(assessment.dimension_scores) == 3
+        assert assessment.evaluation_mode == "single"
+
+        # Find each dimension
+        tech = next(d for d in assessment.dimension_scores if d.dimension == "technical")
+        econ = next(d for d in assessment.dimension_scores if d.dimension == "economic")
+        env = next(d for d in assessment.dimension_scores if d.dimension == "environmental")
+
+        assert tech.score == pytest.approx(0.85, abs=0.01)
+        assert econ.score == pytest.approx(0.7, abs=0.01)
+        assert env.score == pytest.approx(0.6, abs=0.01)
+        assert tech.matched_rules == 1
+        assert econ.matched_rules == 1
+        assert env.matched_rules == 1
+
+
+# -------------------------------------------------------------------
+# 8. Batch assessment with RSR
+# -------------------------------------------------------------------
+
+class TestBatchAssessment:
+    def test_batch_assess_two_versions(self, system):
+        """Batch assessment of two versions produces RSR-based results."""
+        system.rule_engine.create_rule(L4RuleCreate(
+            name="螺栓易拆",
+            conclusion_score=0.8,
+            conclusion_grade=Grade.GOOD,
+            dimension="technical",
+            weight=1.0,
+            conditions=[L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接")],
+        ))
+
+        sg_bolt = {
+            "nodes": [
+                {"id": "c1", "labels": ["L1_Component"], "name": "电池外壳"},
+                {"id": "bolt", "labels": ["ConnectionType"], "name": "螺栓连接"},
+            ],
+            "relationships": [{"start": "c1", "end": "bolt", "type": "USES_CONNECTION"}],
+        }
+        sg_weld = {
+            "nodes": [
+                {"id": "c1", "labels": ["L1_Component"], "name": "电池外壳"},
+                {"id": "weld", "labels": ["ConnectionType"], "name": "焊接连接"},
+            ],
+            "relationships": [{"start": "c1", "end": "weld", "type": "USES_CONNECTION"}],
+        }
+
+        v1 = _setup_version(system, sg_bolt, design_name="方案A")
+        v2 = _setup_version(system, sg_weld, design_name="方案B")
+
+        assessments = system.batch_assess([v1.version_id, v2.version_id])
+
+        assert len(assessments) == 2
+        for a in assessments:
+            assert a.evaluation_mode == "batch"
+            assert a.grade_thresholds is not None
+            assert len(a.dimension_scores) == 3
+            for ds in a.dimension_scores:
+                assert ds.rsr_value is not None
+                assert ds.rank is not None
+
+        # Bolt version should have higher technical RSR and better technical rank
+        bolt_a = next(a for a in assessments if a.version_id == v1.version_id)
+        weld_a = next(a for a in assessments if a.version_id == v2.version_id)
+
+        bolt_tech = next(d for d in bolt_a.dimension_scores if d.dimension == "technical")
+        weld_tech = next(d for d in weld_a.dimension_scores if d.dimension == "technical")
+        assert bolt_tech.rsr_value > weld_tech.rsr_value
+        assert bolt_tech.rank < weld_tech.rank
+        assert bolt_tech.matched_rules == 1
+        assert weld_tech.matched_rules == 0
+
+    def test_batch_assess_empty_versions_raises(self, system):
+        """batch_assess with non-existent version raises ValueError."""
+        with pytest.raises(ValueError, match="not found"):
+            system.batch_assess(["nonexistent_v1"])
+
+
+# -------------------------------------------------------------------
+# 9. Grade config: get, update, calibrate
+# -------------------------------------------------------------------
+
+class TestGradeConfig:
+    def test_get_default_grade_config(self, system):
+        """Default grade config has expected thresholds."""
+        config = system.get_grade_config()
+        assert config.excellent_threshold == 0.75
+        assert config.good_threshold == 0.55
+        assert config.qualified_threshold == 0.35
+        assert config.source == "default"
+
+    def test_update_grade_config(self, system):
+        """Update grade config persists changes."""
+        new_config = GradeConfig(
+            excellent_threshold=0.8,
+            good_threshold=0.6,
+            qualified_threshold=0.4,
+            source="manual",
+        )
+        result = system.update_grade_config(new_config)
+        assert result.excellent_threshold == 0.8
+        assert result.source == "manual"
+
+        # Verify it persists
+        stored = system.get_grade_config()
+        assert stored.excellent_threshold == 0.8
+
+    def test_calibrate_thresholds_needs_10_assessments(self, system):
+        """Calibration fails with fewer than 10 assessments."""
+        with pytest.raises(ValueError, match="不足"):
+            system.calibrate_thresholds()
+
+
+# -------------------------------------------------------------------
+# 10. End-to-end: create rule with dimension -> assess -> verify
+# -------------------------------------------------------------------
+
+class TestEndToEndDimensionEvaluation:
+    def test_create_dimension_rule_and_evaluate(self, system):
+        """Full flow: create rule with dimension -> create version -> evaluate -> check dimension scores."""
+        # Create rules in 3 dimensions
+        for dim, name, score, label in [
+            ("technical", "技术规则", 0.8, "螺栓连接"),
+            ("economic", "经济规则", 0.6, "标准扳手"),
+            ("environmental", "环境规则", 0.5, "模块化设计"),
+        ]:
+            system.rule_engine.create_rule(L4RuleCreate(
+                name=name,
+                conclusion_score=score,
+                conclusion_grade=Grade.GOOD,
+                dimension=dim,
+                weight=1.0,
+                conditions=[L4RuleCondition(
+                    condition_type="REQUIRES_CONNECTION" if dim == "technical" else "REQUIRES_TOOL" if dim == "economic" else "REQUIRES_STRUCTURE",
+                    target_label=label,
+                )],
+            ))
+
+        subgraph = {
+            "nodes": [
+                {"id": "c1", "labels": ["L1_Component"], "name": "电池外壳"},
+                {"id": "bolt", "labels": ["ConnectionType"], "name": "螺栓连接"},
+                {"id": "wrench", "labels": ["Tool"], "name": "标准扳手"},
+                {"id": "modular", "labels": ["StructureFeature"], "name": "模块化设计"},
+            ],
+            "relationships": [
+                {"start": "c1", "end": "bolt", "type": "USES_CONNECTION"},
+                {"start": "c1", "end": "wrench", "type": "REQUIRES_TOOL"},
+                {"start": "c1", "end": "modular", "type": "HAS_FEATURE"},
+            ],
+        }
+        version = _setup_version(system, subgraph)
+        assessment = system.reason(version.version_id)
+
+        # Verify all 3 dimensions present
+        dims = {d.dimension: d for d in assessment.dimension_scores}
+        assert "technical" in dims
+        assert "economic" in dims
+        assert "environmental" in dims
+
+        assert dims["technical"].score == pytest.approx(0.8, abs=0.01)
+        assert dims["economic"].score == pytest.approx(0.6, abs=0.01)
+        assert dims["environmental"].score == pytest.approx(0.5, abs=0.01)
+
+        # Overall should be weighted average of dimension scores
+        # (0.8*1.0 + 0.6*1.0 + 0.5*1.0) / 3.0 = 0.633
+        assert assessment.overall_score == pytest.approx(0.633, abs=0.02)
