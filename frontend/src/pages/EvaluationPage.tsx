@@ -80,7 +80,7 @@ interface RuleFormData {
 }
 
 interface Candidate {
-  candidate_id: string;
+  rule_id: string;
   name: string;
   description: string;
   conclusion_score: number;
@@ -681,7 +681,7 @@ export default function EvaluationPage() {
                 <div>
                   <h4>候选规则列表</h4>
                   {candidates.map(c => (
-                    <div key={c.candidate_id} style={{
+                    <div key={c.rule_id} style={{
                       padding: '12px', background: 'white', borderRadius: '4px',
                       marginBottom: '8px', border: '1px solid #eee',
                       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -692,7 +692,7 @@ export default function EvaluationPage() {
                       </div>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button
-                          onClick={() => handleApproveCandidate(c.candidate_id)}
+                          onClick={() => handleApproveCandidate(c.rule_id)}
                           style={{
                             padding: '4px 12px', background: '#52c41a', color: 'white',
                             border: 'none', borderRadius: '4px', cursor: 'pointer',
@@ -701,7 +701,7 @@ export default function EvaluationPage() {
                           通过
                         </button>
                         <button
-                          onClick={() => handleRejectCandidate(c.candidate_id)}
+                          onClick={() => handleRejectCandidate(c.rule_id)}
                           style={{
                             padding: '4px 12px', background: '#ff4d4f', color: 'white',
                             border: 'none', borderRadius: '4px', cursor: 'pointer',
