@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { evaluationApi } from '../api/client';
+import { evaluationApi, graphApi } from '../api/client';
 import RadarChart from '../components/RadarChart';
 import GradeConfigPanel from '../components/GradeConfigPanel';
 
@@ -118,6 +118,12 @@ export default function EvaluationPage() {
   const [selectedVersions, setSelectedVersions] = useState<string[]>([]);
   const [batchResults, setBatchResults] = useState<any[]>([]);
 
+  // Version creation state
+  const [showVersionForm, setShowVersionForm] = useState(false);
+  const [versionForm, setVersionForm] = useState({ design_name: '', component_ids: [] as string[], connection_ids: [] as string[] });
+  const [graphNodes, setGraphNodes] = useState<any[]>([]);
+  const [graphEdges, setGraphEdges] = useState<any[]>([]);
+
   useEffect(() => {
     loadVersions();
   }, []);
@@ -163,6 +169,55 @@ export default function EvaluationPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function openVersionForm() {
+    setShowVersionForm(true);
+    setVersionForm({ design_name: '', component_ids: [], connection_ids: [] });
+    try {
+      const [nodesRes, edgesRes] = await Promise.all([
+        graphApi.getNodes(),
+        graphApi.getRelationships(),
+      ]);
+      setGraphNodes(nodesRes.data || []);
+      setGraphEdges(edgesRes.data || []);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }
+
+  async function handleCreateVersion() {
+    if (!versionForm.design_name.trim()) return;
+    setLoading(true);
+    setError('');
+    try {
+      await evaluationApi.createVersion(versionForm);
+      setShowVersionForm(false);
+      loadVersions();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function toggleComponent(id: string) {
+    setVersionForm(prev => ({
+      ...prev,
+      component_ids: prev.component_ids.includes(id)
+        ? prev.component_ids.filter(x => x !== id)
+        : [...prev.component_ids, id],
+    }));
+  }
+
+  function toggleConnection(from: string, to: string) {
+    const key = `${from}->${to}`;
+    setVersionForm(prev => ({
+      ...prev,
+      connection_ids: prev.connection_ids.includes(key)
+        ? prev.connection_ids.filter(x => x !== key)
+        : [...prev.connection_ids, key],
+    }));
   }
 
   function getGradeColor(grade: string) {
@@ -350,7 +405,120 @@ export default function EvaluationPage() {
       {/* Tab 1: Assessment Dashboard */}
       {activeTab === 'assessment' && (
         <div>
+          {/* Version Creation Modal */}
+          {showVersionForm && (
+            <div style={{
+              position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+              background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', zIndex: 1000,
+            }}>
+              <div style={{
+                background: 'white', borderRadius: '8px', padding: '24px',
+                width: '600px', maxHeight: '80vh', overflow: 'auto',
+              }}>
+                <h3 style={{ marginTop: 0 }}>创建设计版本</h3>
+                <div style={{ marginBottom: '12px' }}>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>设计名称</label>
+                  <input
+                    value={versionForm.design_name}
+                    onChange={e => setVersionForm(prev => ({ ...prev, design_name: e.target.value }))}
+                    placeholder="例：电池包V1"
+                    style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #d9d9d9', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div style={{ marginBottom: '12px' }}>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                    组件（L1，已选 {versionForm.component_ids.length}）
+                  </label>
+                  <div style={{
+                    maxHeight: '150px', overflow: 'auto', border: '1px solid #d9d9d9',
+                    borderRadius: '4px', padding: '8px',
+                  }}>
+                    {graphNodes.filter(n => n.type === 'L1').length === 0 && (
+                      <div style={{ color: '#999', fontSize: '13px' }}>暂无 L1 组件</div>
+                    )}
+                    {graphNodes.filter(n => n.type === 'L1').map(n => (
+                      <label key={n.id} style={{
+                        display: 'inline-block', padding: '4px 10px', margin: '3px',
+                        borderRadius: '4px', cursor: 'pointer', fontSize: '13px',
+                        background: versionForm.component_ids.includes(n.id) ? '#e6f7ff' : '#f5f5f5',
+                        border: versionForm.component_ids.includes(n.id) ? '1px solid #1890ff' : '1px solid #d9d9d9',
+                      }}>
+                        <input
+                          type="checkbox"
+                          checked={versionForm.component_ids.includes(n.id)}
+                          onChange={() => toggleComponent(n.id)}
+                          style={{ marginRight: '4px' }}
+                        />
+                        {n.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                    连接（已选 {versionForm.connection_ids.length}）
+                  </label>
+                  <div style={{
+                    maxHeight: '150px', overflow: 'auto', border: '1px solid #d9d9d9',
+                    borderRadius: '4px', padding: '8px',
+                  }}>
+                    {graphEdges.length === 0 && (
+                      <div style={{ color: '#999', fontSize: '13px' }}>暂无连接</div>
+                    )}
+                    {graphEdges.map((e, i) => {
+                      const fromNode = graphNodes.find(n => n.id === e.from_);
+                      const toNode = graphNodes.find(n => n.id === e.to);
+                      const key = `${e.from_}->${e.to}`;
+                      const label = `${fromNode?.name || e.from_} → ${toNode?.name || e.to} (${e.type})`;
+                      return (
+                        <label key={i} style={{
+                          display: 'inline-block', padding: '4px 10px', margin: '3px',
+                          borderRadius: '4px', cursor: 'pointer', fontSize: '13px',
+                          background: versionForm.connection_ids.includes(key) ? '#f6ffed' : '#f5f5f5',
+                          border: versionForm.connection_ids.includes(key) ? '1px solid #52c41a' : '1px solid #d9d9d9',
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={versionForm.connection_ids.includes(key)}
+                            onChange={() => toggleConnection(e.from_, e.to)}
+                            style={{ marginRight: '4px' }}
+                          />
+                          {label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => setShowVersionForm(false)}
+                    style={{ padding: '8px 16px', border: '1px solid #d9d9d9', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}
+                  >取消</button>
+                  <button
+                    onClick={handleCreateVersion}
+                    disabled={!versionForm.design_name.trim() || loading}
+                    style={{
+                      padding: '8px 16px', background: '#1890ff', color: 'white',
+                      border: 'none', borderRadius: '4px',
+                      cursor: versionForm.design_name.trim() && !loading ? 'pointer' : 'not-allowed',
+                    }}
+                  >{loading ? '创建中...' : '创建'}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div style={{ marginBottom: '16px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              onClick={openVersionForm}
+              style={{
+                padding: '8px 16px', background: '#52c41a', color: 'white',
+                border: 'none', borderRadius: '4px', cursor: 'pointer',
+              }}
+            >
+              + 创建版本
+            </button>
             <select
               value={batchMode ? '' : selectedVersion}
               onChange={e => { setSelectedVersion(e.target.value); setBatchMode(false); }}
