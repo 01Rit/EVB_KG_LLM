@@ -566,3 +566,263 @@ def test_design_prediction_response_serialization():
     data = resp.model_dump()
     assert data["predicted_grade"] == "良好"
     assert data["matched_rules"] == []
+
+
+# ── DimensionScore tests ──
+
+def test_dimension_score():
+    ds = DimensionScore(
+        dimension=Dimension.TECHNICAL,
+        score=0.82,
+        rsr_value=0.75,
+        rank=1,
+        grade=Grade.GOOD,
+        matched_rules=5,
+        total_rules=8,
+    )
+    assert ds.dimension == Dimension.TECHNICAL
+    assert ds.score == 0.82
+    assert ds.rsr_value == 0.75
+    assert ds.rank == 1
+    assert ds.grade == Grade.GOOD
+    assert ds.matched_rules == 5
+    assert ds.total_rules == 8
+
+
+def test_dimension_score_optional_fields():
+    ds = DimensionScore(
+        dimension=Dimension.ECONOMIC,
+        grade=Grade.QUALIFIED,
+        matched_rules=2,
+        total_rules=6,
+    )
+    assert ds.score is None
+    assert ds.rsr_value is None
+    assert ds.rank is None
+
+
+def test_dimension_score_all_dimensions():
+    for dim in Dimension:
+        ds = DimensionScore(
+            dimension=dim,
+            grade=Grade.GOOD,
+            matched_rules=3,
+            total_rules=5,
+        )
+        assert ds.dimension == dim
+
+
+# ── GradeThreshold tests ──
+
+def test_grade_threshold():
+    gt = GradeThreshold(
+        excellent=0.85,
+        good=0.65,
+        qualified=0.45,
+        regression={"min": 0.0, "max": 0.3},
+    )
+    assert gt.excellent == 0.85
+    assert gt.good == 0.65
+    assert gt.qualified == 0.45
+    assert gt.regression["min"] == 0.0
+    assert gt.regression["max"] == 0.3
+
+
+def test_grade_threshold_empty_regression():
+    gt = GradeThreshold(
+        excellent=0.9,
+        good=0.7,
+        qualified=0.5,
+        regression={},
+    )
+    assert gt.regression == {}
+
+
+# ── GradeConfig tests ──
+
+def test_grade_config_defaults():
+    gc = GradeConfig()
+    assert gc.excellent_threshold == 0.75
+    assert gc.good_threshold == 0.55
+    assert gc.qualified_threshold == 0.35
+    assert gc.source == "default"
+
+
+def test_grade_config_custom():
+    gc = GradeConfig(
+        excellent_threshold=0.9,
+        good_threshold=0.7,
+        qualified_threshold=0.5,
+        source="expert_panel",
+    )
+    assert gc.excellent_threshold == 0.9
+    assert gc.good_threshold == 0.7
+    assert gc.qualified_threshold == 0.5
+    assert gc.source == "expert_panel"
+
+
+# ── L4RuleCondition with fuzzy_threshold ──
+
+def test_l4rule_condition_fuzzy_threshold_default():
+    cond = L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接")
+    assert cond.fuzzy_threshold == 0.6
+
+
+def test_l4rule_condition_custom_fuzzy_threshold():
+    cond = L4RuleCondition(
+        condition_type="REQUIRES_CONNECTION",
+        target_label="螺栓连接",
+        fuzzy_threshold=0.85,
+    )
+    assert cond.fuzzy_threshold == 0.85
+
+
+# ── L4RuleCreate with dimension ──
+
+def test_l4rule_create_dimension_default():
+    rule = L4RuleCreate(name="test_rule", conclusion_score=0.8, conclusion_grade=Grade.GOOD)
+    assert rule.dimension == Dimension.TECHNICAL
+
+
+def test_l4rule_create_with_dimension():
+    rule = L4RuleCreate(
+        name="eco_rule",
+        conclusion_score=0.6,
+        conclusion_grade=Grade.QUALIFIED,
+        dimension=Dimension.ENVIRONMENTAL,
+    )
+    assert rule.dimension == Dimension.ENVIRONMENTAL
+
+
+def test_l4rule_create_economic_dimension():
+    rule = L4RuleCreate(
+        name="cost_rule",
+        conclusion_score=0.7,
+        conclusion_grade=Grade.GOOD,
+        dimension=Dimension.ECONOMIC,
+    )
+    assert rule.dimension == Dimension.ECONOMIC
+
+
+# ── L4Rule with dimension ──
+
+def test_l4rule_dimension_default():
+    rule = L4Rule(rule_id="r010", name="test", conclusion_score=0.5, conclusion_grade=Grade.QUALIFIED)
+    assert rule.dimension == Dimension.TECHNICAL
+
+
+def test_l4rule_with_dimension():
+    rule = L4Rule(
+        rule_id="r011",
+        name="env_rule",
+        conclusion_score=0.7,
+        conclusion_grade=Grade.GOOD,
+        dimension=Dimension.ENVIRONMENTAL,
+    )
+    assert rule.dimension == Dimension.ENVIRONMENTAL
+
+
+# ── CandidateRule with new fields ──
+
+def test_candidate_rule_new_field_defaults():
+    cr = CandidateRule(rule_id="cr010", name="basic")
+    assert cr.dimension == Dimension.TECHNICAL
+    assert cr.fuzzy_threshold == 0.6
+    assert cr.duplicate_status is None
+    assert cr.duplicate_of is None
+
+
+def test_candidate_rule_with_new_fields():
+    cr = CandidateRule(
+        rule_id="cr011",
+        name="extracted_rule",
+        dimension=Dimension.ECONOMIC,
+        fuzzy_threshold=0.8,
+        duplicate_status="duplicate",
+        duplicate_of="cr001",
+    )
+    assert cr.dimension == Dimension.ECONOMIC
+    assert cr.fuzzy_threshold == 0.8
+    assert cr.duplicate_status == "duplicate"
+    assert cr.duplicate_of == "cr001"
+
+
+def test_candidate_rule_duplicate_status_variants():
+    for status in ["duplicate", "similar", None]:
+        cr = CandidateRule(
+            rule_id="cr012",
+            name="test",
+            duplicate_status=status,
+        )
+        assert cr.duplicate_status == status
+
+
+# ── L4Assessment with new fields ──
+
+def test_l4_assessment_new_field_defaults():
+    a = L4Assessment(
+        assessment_id="a010",
+        version_id="v010",
+        overall_score=0.7,
+        overall_grade=Grade.GOOD,
+    )
+    assert a.dimension_scores == []
+    assert a.evaluation_mode == "single"
+    assert a.dimension_weights == {}
+    assert a.grade_thresholds is None
+    assert a.rank_matrix is None
+    assert a.per_version is None
+
+
+def test_l4_assessment_with_dimension_scores():
+    scores = [
+        DimensionScore(
+            dimension=Dimension.TECHNICAL,
+            score=0.8,
+            grade=Grade.GOOD,
+            matched_rules=4,
+            total_rules=6,
+        ),
+        DimensionScore(
+            dimension=Dimension.ECONOMIC,
+            score=0.6,
+            grade=Grade.QUALIFIED,
+            matched_rules=3,
+            total_rules=5,
+        ),
+    ]
+    a = L4Assessment(
+        assessment_id="a011",
+        version_id="v011",
+        overall_score=0.7,
+        overall_grade=Grade.GOOD,
+        dimension_scores=scores,
+    )
+    assert len(a.dimension_scores) == 2
+    assert a.dimension_scores[0].dimension == Dimension.TECHNICAL
+    assert a.dimension_scores[1].score == 0.6
+
+
+def test_l4_assessment_multi_mode():
+    thresholds = GradeThreshold(
+        excellent=0.85,
+        good=0.65,
+        qualified=0.45,
+        regression={"min": 0.0, "max": 0.3},
+    )
+    a = L4Assessment(
+        assessment_id="a012",
+        version_id="v012",
+        overall_score=0.72,
+        overall_grade=Grade.GOOD,
+        evaluation_mode="multi",
+        dimension_weights={"technical": 0.5, "economic": 0.3, "environmental": 0.2},
+        grade_thresholds=thresholds,
+        rank_matrix=[{"version": "v1", "rank": 1}],
+        per_version=[{"version_id": "v1", "score": 0.72}],
+    )
+    assert a.evaluation_mode == "multi"
+    assert a.dimension_weights["technical"] == 0.5
+    assert a.grade_thresholds.excellent == 0.85
+    assert a.rank_matrix[0]["rank"] == 1
+    assert a.per_version[0]["score"] == 0.72
