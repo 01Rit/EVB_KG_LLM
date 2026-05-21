@@ -199,9 +199,9 @@ class TestPredictionFromParameters:
         version = _setup_version(system, subgraph)
         assessment = system.reason(version.version_id)
 
-        # Both rules matched: (0.85 + 0.75) / 2.0 = 0.8 -> HIGH
+        # Both rules matched: (0.85 + 0.75) / 2.0 = 0.8 -> EXCELLENT (>= 0.75)
         assert assessment.overall_score == pytest.approx(0.8, abs=0.01)
-        assert assessment.overall_grade == Grade.GOOD
+        assert assessment.overall_grade == Grade.EXCELLENT
         assert len([m for m in assessment.rule_matches if m.matched]) == 2
 
 
@@ -259,9 +259,9 @@ class TestMultipleRulesWeighted:
         assessment = system.reason(version.version_id)
 
         # Weighted: (0.9*2.0 + 0.5*1.0 + 0.0*1.0) / (2.0+1.0+1.0)
-        # = (1.8 + 0.5 + 0) / 4.0 = 0.575
+        # = (1.8 + 0.5 + 0) / 4.0 = 0.575 -> GOOD (0.55 <= 0.575 < 0.75)
         assert assessment.overall_score == pytest.approx(0.575, abs=0.01)
-        assert assessment.overall_grade == Grade.QUALIFIED
+        assert assessment.overall_grade == Grade.GOOD
 
         matched = [m for m in assessment.rule_matches if m.matched]
         assert len(matched) == 2

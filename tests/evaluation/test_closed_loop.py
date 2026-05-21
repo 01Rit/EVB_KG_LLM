@@ -110,7 +110,7 @@ class TestReason:
         assert assessment.assessment_id.startswith("assess_")
         assert assessment.version_id == version.version_id
         assert assessment.overall_score == 0.8
-        assert assessment.overall_grade == Grade.GOOD
+        assert assessment.overall_grade == Grade.EXCELLENT
         assert len(assessment.rule_matches) == 1
         assert assessment.rule_matches[0].matched is True
 
@@ -219,7 +219,7 @@ class TestCorrect:
 
         stored = loop.get_assessment(assessment.assessment_id)
         assert stored.overall_score == 0.9
-        assert stored.overall_grade == Grade.GOOD
+        assert stored.overall_grade == Grade.EXCELLENT
         assert stored.status == AssessmentStatus.REVISED
 
     def test_correct_revises_changes_grade(self, loop, subgraph_with_bolt):
@@ -406,7 +406,7 @@ class TestFullLoop:
         assessment2 = loop.reason(new_version.version_id)
         # Now both rules match: (0.8*1.0 + 0.3*1.0) / 2.0 = 0.55
         assert assessment2.overall_score == 0.55
-        assert assessment2.overall_grade == Grade.QUALIFIED
+        assert assessment2.overall_grade == Grade.GOOD  # 0.55 >= good_threshold
         matched2 = [m for m in assessment2.rule_matches if m.matched]
         assert len(matched2) == 2
 

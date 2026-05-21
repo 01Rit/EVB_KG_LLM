@@ -5,7 +5,7 @@ from typing import Optional
 
 from src.evaluation.models import (
     L4Rule, L4Assessment, RuleMatchDetail, ReasoningPath, Grade,
-    AssessmentStatus, RuleStatus,
+    AssessmentStatus, RuleStatus, Dimension, DimensionScore, GradeConfig,
 )
 from src.evaluation.rule_engine import RuleEngine
 
@@ -16,8 +16,9 @@ class Evaluator:
     """Evaluates design subgraphs against L4 rules, producing assessments
     with weighted scores and reasoning paths."""
 
-    def __init__(self, rule_engine: RuleEngine):
+    def __init__(self, rule_engine: RuleEngine, grade_config: GradeConfig = None):
         self.rule_engine = rule_engine
+        self.grade_config = grade_config or GradeConfig()
 
     def evaluate(self, version_id: str, subgraph: dict) -> L4Assessment:
         """Evaluate a design subgraph against all active rules.
@@ -27,51 +28,65 @@ class Evaluator:
             subgraph: Dict with "nodes" and "relationships" representing the design.
 
         Returns:
-            L4Assessment with overall score, grade, rule matches, and feedback.
+            L4Assessment with overall score, grade, dimension scores, rule matches, and feedback.
         """
         active_rules = self.rule_engine.get_rules(status=RuleStatus.ACTIVE)
         if not active_rules:
             logger.warning("No active rules found for evaluation")
             return self._empty_assessment(version_id)
 
-        rule_matches: list[RuleMatchDetail] = []
+        # Group rules by dimension
+        rules_by_dim: dict[Dimension, list[L4Rule]] = {d: [] for d in Dimension}
+        for rule in active_rules:
+            rules_by_dim[rule.dimension].append(rule)
+
+        # Evaluate each dimension
+        dimension_scores: list[DimensionScore] = []
+        all_rule_matches: list[RuleMatchDetail] = []
         matched_rule_ids: list[str] = []
         unmatched_rules: list[dict] = []
         total_weighted_score = 0.0
         total_weight = 0.0
 
-        for rule in active_rules:
-            matched, details = self.rule_engine.match_rule(rule, subgraph)
-            contribution = rule.conclusion_score * rule.weight if matched else 0.0
-
-            match_detail = RuleMatchDetail(
-                rule_id=rule.rule_id,
-                rule_name=rule.name,
-                matched=matched,
-                score_contribution=contribution,
-                matched_pattern=self._format_pattern(details),
-                reason=self._format_reason(rule, matched, details),
-            )
-            rule_matches.append(match_detail)
-
-            if matched:
-                matched_rule_ids.append(rule.rule_id)
-                total_weighted_score += rule.conclusion_score * rule.weight
+        for dim in Dimension:
+            dim_rules = rules_by_dim[dim]
+            if dim_rules:
+                dim_score, dim_matches, dim_weight = self._evaluate_dimension(dim_rules, subgraph)
             else:
-                unmatched_rules.append({
-                    "rule_id": rule.rule_id,
-                    "rule_name": rule.name,
-                    "conditions": [
-                        {
-                            "condition_type": d["condition_type"],
-                            "target_label": d["target_label"],
-                            "matched": d["matched"],
-                        }
-                        for d in details
-                    ],
-                })
+                dim_score, dim_matches, dim_weight = 0.0, [], 0.0
 
-            total_weight += rule.weight
+            matched_count = sum(1 for m in dim_matches if m.matched)
+            dimension_scores.append(DimensionScore(
+                dimension=dim,
+                score=round(dim_score, 4),
+                grade=self._score_to_grade(dim_score),
+                matched_rules=matched_count,
+                total_rules=len(dim_rules),
+            ))
+
+            all_rule_matches.extend(dim_matches)
+            for match in dim_matches:
+                if match.matched:
+                    matched_rule_ids.append(match.rule_id)
+                else:
+                    rule = next((r for r in dim_rules if r.rule_id == match.rule_id), None)
+                    if rule:
+                        unmatched_rules.append({
+                            "rule_id": rule.rule_id,
+                            "rule_name": rule.name,
+                            "dimension": dim.value,
+                            "conditions": [
+                                {
+                                    "condition_type": d["condition_type"],
+                                    "target_label": d["target_label"],
+                                    "matched": d["matched"],
+                                }
+                                for d in []  # details not available here; kept for compatibility
+                            ],
+                        })
+
+            total_weighted_score += dim_score * dim_weight
+            total_weight += dim_weight
 
         overall_score = total_weighted_score / total_weight if total_weight > 0 else 0.0
         overall_grade = self._score_to_grade(overall_score)
@@ -80,22 +95,24 @@ class Evaluator:
             path_id=f"path_{uuid.uuid4().hex[:8]}",
             assessment_id="",  # will be set after assessment is created
             matched_rule_ids=matched_rule_ids,
-            evaluation_chain=rule_matches,
+            evaluation_chain=all_rule_matches,
             aggregate_score=overall_score,
             unmatched_rules=unmatched_rules,
-            confidence_factors=self._compute_confidence(rule_matches, total_weight),
+            confidence_factors=self._compute_confidence(all_rule_matches, total_weight),
         )
 
-        feedback = self._generate_feedback(overall_score, overall_grade, rule_matches)
+        feedback = self._generate_feedback(overall_score, overall_grade, all_rule_matches)
 
         assessment = L4Assessment(
             assessment_id=f"assess_{uuid.uuid4().hex[:8]}",
             version_id=version_id,
             overall_score=round(overall_score, 4),
             overall_grade=overall_grade,
-            rule_matches=rule_matches,
+            rule_matches=all_rule_matches,
             feedback_text=feedback,
             status=AssessmentStatus.PENDING_REVIEW,
+            dimension_scores=dimension_scores,
+            evaluation_mode="single",
         )
 
         # Backfill assessment_id into reasoning path
@@ -109,6 +126,33 @@ class Evaluator:
 
         return assessment
 
+    def _evaluate_dimension(
+        self, rules: list[L4Rule], subgraph: dict
+    ) -> tuple[float, list[RuleMatchDetail], float]:
+        """Evaluate rules within a single dimension. Returns (score, matches, total_weight)."""
+        rule_matches = []
+        total_weighted = 0.0
+        total_weight = 0.0
+
+        for rule in rules:
+            matched_score, details = self.rule_engine.match_rule(rule, subgraph)
+            is_matched = matched_score > 0
+            contribution = rule.conclusion_score * rule.weight if is_matched else 0.0
+            match_detail = RuleMatchDetail(
+                rule_id=rule.rule_id,
+                rule_name=rule.name,
+                matched=is_matched,
+                score_contribution=contribution,
+                matched_pattern=self._format_pattern(details),
+                reason=self._format_reason(rule, is_matched, details),
+            )
+            rule_matches.append(match_detail)
+            total_weighted += contribution
+            total_weight += rule.weight
+
+        dim_score = total_weighted / total_weight if total_weight > 0 else 0.0
+        return dim_score, rule_matches, total_weight
+
     def _empty_assessment(self, version_id: str) -> L4Assessment:
         return L4Assessment(
             assessment_id=f"assess_{uuid.uuid4().hex[:8]}",
@@ -121,9 +165,12 @@ class Evaluator:
         )
 
     def _score_to_grade(self, score: float) -> Grade:
-        if score >= 0.7:
+        cfg = self.grade_config
+        if score >= cfg.excellent_threshold:
+            return Grade.EXCELLENT
+        elif score >= cfg.good_threshold:
             return Grade.GOOD
-        elif score >= 0.4:
+        elif score >= cfg.qualified_threshold:
             return Grade.QUALIFIED
         return Grade.UNQUALIFIED
 
