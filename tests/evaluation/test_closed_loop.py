@@ -76,7 +76,7 @@ def _create_bolt_rule(loop):
     return loop.rule_engine.create_rule(L4RuleCreate(
         name="螺栓易拆规则",
         conclusion_score=0.8,
-        conclusion_grade=Grade.HIGH,
+        conclusion_grade=Grade.GOOD,
         weight=1.0,
         conditions=[
             L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接"),
@@ -89,7 +89,7 @@ def _create_weld_rule(loop):
     return loop.rule_engine.create_rule(L4RuleCreate(
         name="焊接难拆规则",
         conclusion_score=0.3,
-        conclusion_grade=Grade.LOW,
+        conclusion_grade=Grade.UNQUALIFIED,
         weight=1.0,
         conditions=[
             L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="焊接连接"),
@@ -110,7 +110,7 @@ class TestReason:
         assert assessment.assessment_id.startswith("assess_")
         assert assessment.version_id == version.version_id
         assert assessment.overall_score == 0.8
-        assert assessment.overall_grade == Grade.HIGH
+        assert assessment.overall_grade == Grade.GOOD
         assert len(assessment.rule_matches) == 1
         assert assessment.rule_matches[0].matched is True
 
@@ -139,7 +139,7 @@ class TestReason:
         assessment = loop.reason(version.version_id)
 
         assert assessment.overall_score == 0.0
-        assert assessment.overall_grade == Grade.LOW
+        assert assessment.overall_grade == Grade.UNQUALIFIED
         assert assessment.rule_matches == []
 
 
@@ -219,7 +219,7 @@ class TestCorrect:
 
         stored = loop.get_assessment(assessment.assessment_id)
         assert stored.overall_score == 0.9
-        assert stored.overall_grade == Grade.HIGH
+        assert stored.overall_grade == Grade.GOOD
         assert stored.status == AssessmentStatus.REVISED
 
     def test_correct_revises_changes_grade(self, loop, subgraph_with_bolt):
@@ -237,7 +237,7 @@ class TestCorrect:
 
         stored = loop.get_assessment(assessment.assessment_id)
         assert stored.overall_score == 0.3
-        assert stored.overall_grade == Grade.LOW
+        assert stored.overall_grade == Grade.UNQUALIFIED
 
     def test_correct_nonexistent_assessment(self, loop):
         fb_data = ExpertFeedbackCreate(
@@ -357,7 +357,7 @@ class TestFullLoop:
         assessment1 = loop.reason(version.version_id)
         # Only bolt rule matches: 0.8*1.0 / (1.0+1.0) = 0.4
         assert assessment1.overall_score == 0.4
-        assert assessment1.overall_grade == Grade.MEDIUM
+        assert assessment1.overall_grade == Grade.QUALIFIED
         matched = [m for m in assessment1.rule_matches if m.matched]
         unmatched = [m for m in assessment1.rule_matches if not m.matched]
         assert len(matched) == 1
@@ -406,7 +406,7 @@ class TestFullLoop:
         assessment2 = loop.reason(new_version.version_id)
         # Now both rules match: (0.8*1.0 + 0.3*1.0) / 2.0 = 0.55
         assert assessment2.overall_score == 0.55
-        assert assessment2.overall_grade == Grade.MEDIUM
+        assert assessment2.overall_grade == Grade.QUALIFIED
         matched2 = [m for m in assessment2.rule_matches if m.matched]
         assert len(matched2) == 2
 

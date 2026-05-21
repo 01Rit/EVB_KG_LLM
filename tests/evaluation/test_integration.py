@@ -53,7 +53,7 @@ class TestFullClosedLoopTwoVersions:
         weld_rule = system.rule_engine.create_rule(L4RuleCreate(
             name="焊接难拆规则",
             conclusion_score=0.3,
-            conclusion_grade=Grade.LOW,
+            conclusion_grade=Grade.UNQUALIFIED,
             weight=1.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="焊接连接"),
@@ -62,7 +62,7 @@ class TestFullClosedLoopTwoVersions:
         bolt_rule = system.rule_engine.create_rule(L4RuleCreate(
             name="螺栓易拆规则",
             conclusion_score=0.8,
-            conclusion_grade=Grade.HIGH,
+            conclusion_grade=Grade.GOOD,
             weight=1.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接"),
@@ -86,7 +86,7 @@ class TestFullClosedLoopTwoVersions:
         # Weld rule matched (0.3*1.0 = 0.3), bolt rule not matched (0.0)
         # Score = 0.3 / 2.0 = 0.15 -> LOW
         assert assessment_v1.overall_score == pytest.approx(0.15, abs=0.01)
-        assert assessment_v1.overall_grade == Grade.LOW
+        assert assessment_v1.overall_grade == Grade.UNQUALIFIED
 
         matched_v1 = [m for m in assessment_v1.rule_matches if m.matched]
         unmatched_v1 = [m for m in assessment_v1.rule_matches if not m.matched]
@@ -153,7 +153,7 @@ class TestFullClosedLoopTwoVersions:
         # Now bolt_rule matches (0.8*1.0 = 0.8), weld_rule does NOT match
         # Score = 0.8 / 2.0 = 0.4 -> MEDIUM
         assert assessment_v2.overall_score == pytest.approx(0.4, abs=0.01)
-        assert assessment_v2.overall_grade == Grade.MEDIUM
+        assert assessment_v2.overall_grade == Grade.QUALIFIED
         assert assessment_v2.overall_score > assessment_v1.overall_score
 
 
@@ -168,7 +168,7 @@ class TestPredictionFromParameters:
         system.rule_engine.create_rule(L4RuleCreate(
             name="标准工具可用规则",
             conclusion_score=0.85,
-            conclusion_grade=Grade.HIGH,
+            conclusion_grade=Grade.GOOD,
             weight=1.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_TOOL", target_label="标准扳手"),
@@ -177,7 +177,7 @@ class TestPredictionFromParameters:
         system.rule_engine.create_rule(L4RuleCreate(
             name="螺栓连接可拆规则",
             conclusion_score=0.75,
-            conclusion_grade=Grade.HIGH,
+            conclusion_grade=Grade.GOOD,
             weight=1.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接"),
@@ -201,7 +201,7 @@ class TestPredictionFromParameters:
 
         # Both rules matched: (0.85 + 0.75) / 2.0 = 0.8 -> HIGH
         assert assessment.overall_score == pytest.approx(0.8, abs=0.01)
-        assert assessment.overall_grade == Grade.HIGH
+        assert assessment.overall_grade == Grade.GOOD
         assert len([m for m in assessment.rule_matches if m.matched]) == 2
 
 
@@ -217,7 +217,7 @@ class TestMultipleRulesWeighted:
         system.rule_engine.create_rule(L4RuleCreate(
             name="高权重规则",
             conclusion_score=0.9,
-            conclusion_grade=Grade.HIGH,
+            conclusion_grade=Grade.GOOD,
             weight=2.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="卡扣连接"),
@@ -227,7 +227,7 @@ class TestMultipleRulesWeighted:
         system.rule_engine.create_rule(L4RuleCreate(
             name="中权重规则",
             conclusion_score=0.5,
-            conclusion_grade=Grade.MEDIUM,
+            conclusion_grade=Grade.QUALIFIED,
             weight=1.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_TOOL", target_label="标准扳手"),
@@ -237,7 +237,7 @@ class TestMultipleRulesWeighted:
         system.rule_engine.create_rule(L4RuleCreate(
             name="低权重规则不匹配",
             conclusion_score=0.3,
-            conclusion_grade=Grade.LOW,
+            conclusion_grade=Grade.UNQUALIFIED,
             weight=1.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="焊接连接"),
@@ -261,7 +261,7 @@ class TestMultipleRulesWeighted:
         # Weighted: (0.9*2.0 + 0.5*1.0 + 0.0*1.0) / (2.0+1.0+1.0)
         # = (1.8 + 0.5 + 0) / 4.0 = 0.575
         assert assessment.overall_score == pytest.approx(0.575, abs=0.01)
-        assert assessment.overall_grade == Grade.MEDIUM
+        assert assessment.overall_grade == Grade.QUALIFIED
 
         matched = [m for m in assessment.rule_matches if m.matched]
         assert len(matched) == 2
@@ -384,7 +384,7 @@ class TestFeedbackRoundtrip:
         system.rule_engine.create_rule(L4RuleCreate(
             name="螺栓易拆规则",
             conclusion_score=0.8,
-            conclusion_grade=Grade.HIGH,
+            conclusion_grade=Grade.GOOD,
             weight=1.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接"),
@@ -406,7 +406,7 @@ class TestFeedbackRoundtrip:
         assessment = system.reason(version.version_id)
         # Bolt rule does NOT match -> score = 0.0 -> LOW
         assert assessment.overall_score == pytest.approx(0.0, abs=0.01)
-        assert assessment.overall_grade == Grade.LOW
+        assert assessment.overall_grade == Grade.UNQUALIFIED
 
         # Stage 2: Generate feedback
         feedback_result = system.generate_feedback(assessment.assessment_id)
@@ -432,7 +432,7 @@ class TestFeedbackRoundtrip:
         # Verify score is updated
         stored = system.get_assessment(assessment.assessment_id)
         assert stored.overall_score == 0.45
-        assert stored.overall_grade == Grade.MEDIUM
+        assert stored.overall_grade == Grade.QUALIFIED
         assert stored.status == AssessmentStatus.REVISED
 
         # Verify feedback is retrievable

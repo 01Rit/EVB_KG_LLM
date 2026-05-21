@@ -73,7 +73,7 @@ class FeedbackGenerator:
         matched: list[RuleMatchDetail],
         unmatched: list[RuleMatchDetail],
     ) -> str:
-        grade_label = {"高": "优秀", "中": "合格", "低": "需改进"}
+        grade_label = {"优秀": "优秀", "良好": "良好", "合格": "合格", "不可再制造": "需改进"}
         label = grade_label.get(assessment.overall_grade.value, assessment.overall_grade.value)
 
         total = len(assessment.rule_matches)
@@ -120,7 +120,7 @@ class FeedbackGenerator:
     ) -> list[dict]:
         risks = []
 
-        if assessment.overall_grade == Grade.LOW:
+        if assessment.overall_grade == Grade.UNQUALIFIED:
             risks.append({
                 "level": "high",
                 "message": "方案整体可拆卸性较低，建议全面审查设计方案。",
@@ -128,7 +128,7 @@ class FeedbackGenerator:
 
         for m in unmatched:
             rule = rule_lookup.get(m.rule_id)
-            if rule and rule.conclusion_grade == Grade.HIGH:
+            if rule and rule.conclusion_grade == Grade.GOOD:
                 risks.append({
                     "level": "medium",
                     "message": f"高权重规则 '{m.rule_name}' 未匹配，可能影响拆卸效率。",

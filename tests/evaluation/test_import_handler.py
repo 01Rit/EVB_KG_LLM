@@ -16,7 +16,7 @@ class MockLLMClient:
                 "name": "螺栓连接易拆卸",
                 "description": "使用螺栓连接的部件易于拆卸",
                 "conclusion_score": 0.8,
-                "conclusion_grade": "高",
+                "conclusion_grade": "良好",
                 "weight": 1.0,
                 "conditions": [
                     {
@@ -64,15 +64,15 @@ class TestExtractFromDocs:
         assert cand.rule_id.startswith("cand_")
         assert cand.name == "螺栓连接易拆卸"
         assert cand.conclusion_score == 0.8
-        assert cand.conclusion_grade == Grade.HIGH
+        assert cand.conclusion_grade == Grade.GOOD
         assert len(cand.conditions) == 1
         assert cand.conditions[0].condition_type == "REQUIRES_CONNECTION"
         assert cand.source_doc_id == "doc_001"
 
     def test_extract_multiple_docs(self):
         llm = MockLLMClient([
-            {"name": "规则A", "conclusion_score": 0.7, "conclusion_grade": "中"},
-            {"name": "规则B", "conclusion_score": 0.9, "conclusion_grade": "高"},
+            {"name": "规则A", "conclusion_score": 0.7, "conclusion_grade": "合格"},
+            {"name": "规则B", "conclusion_score": 0.9, "conclusion_grade": "良好"},
         ])
         handler = ImportHandler(
             neo4j_client=MockNeo4jClient(),
@@ -126,7 +126,7 @@ class TestCheckConsistency:
 
     def test_no_conditions_always_valid(self):
         llm = MockLLMClient([
-            {"name": "无条件规则", "conclusion_score": 0.5, "conclusion_grade": "中", "conditions": []},
+            {"name": "无条件规则", "conclusion_score": 0.5, "conclusion_grade": "合格", "conditions": []},
         ])
         handler = ImportHandler(neo4j_client=MockNeo4jClient(), llm_client=llm)
         candidates = handler.extract_from_docs(["doc1"])

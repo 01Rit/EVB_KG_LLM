@@ -44,14 +44,14 @@ class TestEmptyRules:
     def test_no_active_rules(self, evaluator, subgraph):
         assessment = evaluator.evaluate("v1", subgraph)
         assert assessment.overall_score == 0.0
-        assert assessment.overall_grade == Grade.LOW
+        assert assessment.overall_grade == Grade.UNQUALIFIED
         assert assessment.rule_matches == []
         assert "No active rules" in assessment.feedback_text
         assert assessment.status == AssessmentStatus.PENDING_REVIEW
 
     def test_only_disabled_rules(self, engine, evaluator, subgraph):
         rule = engine.create_rule(L4RuleCreate(
-            name="disabled", conclusion_score=0.9, conclusion_grade=Grade.HIGH,
+            name="disabled", conclusion_score=0.9, conclusion_grade=Grade.GOOD,
         ))
         engine.update_rule(rule.rule_id, status=RuleStatus.DISABLED)
         assessment = evaluator.evaluate("v1", subgraph)
@@ -66,7 +66,7 @@ class TestFullMatch:
         engine.create_rule(L4RuleCreate(
             name="螺栓易拆",
             conclusion_score=0.8,
-            conclusion_grade=Grade.HIGH,
+            conclusion_grade=Grade.GOOD,
             weight=1.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接"),
@@ -74,7 +74,7 @@ class TestFullMatch:
         ))
         assessment = evaluator.evaluate("v1", subgraph)
         assert assessment.overall_score == 0.8
-        assert assessment.overall_grade == Grade.HIGH
+        assert assessment.overall_grade == Grade.GOOD
         assert len(assessment.rule_matches) == 1
         assert assessment.rule_matches[0].matched is True
         assert assessment.rule_matches[0].score_contribution == 0.8
@@ -83,7 +83,7 @@ class TestFullMatch:
         engine.create_rule(L4RuleCreate(
             name="螺栓易拆",
             conclusion_score=0.8,
-            conclusion_grade=Grade.HIGH,
+            conclusion_grade=Grade.GOOD,
             weight=1.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接"),
@@ -92,7 +92,7 @@ class TestFullMatch:
         engine.create_rule(L4RuleCreate(
             name="工具通用",
             conclusion_score=0.6,
-            conclusion_grade=Grade.MEDIUM,
+            conclusion_grade=Grade.QUALIFIED,
             weight=1.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_TOOL", target_label="标准扳手"),
@@ -101,7 +101,7 @@ class TestFullMatch:
         assessment = evaluator.evaluate("v1", subgraph)
         # weighted average: (0.8*1.0 + 0.6*1.0) / 2.0 = 0.7
         assert assessment.overall_score == 0.7
-        assert assessment.overall_grade == Grade.HIGH
+        assert assessment.overall_grade == Grade.GOOD
         assert all(m.matched for m in assessment.rule_matches)
 
 
@@ -113,7 +113,7 @@ class TestPartialMatch:
         engine.create_rule(L4RuleCreate(
             name="螺栓易拆",
             conclusion_score=0.8,
-            conclusion_grade=Grade.HIGH,
+            conclusion_grade=Grade.GOOD,
             weight=1.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接"),
@@ -122,7 +122,7 @@ class TestPartialMatch:
         engine.create_rule(L4RuleCreate(
             name="焊接难拆",
             conclusion_score=0.3,
-            conclusion_grade=Grade.LOW,
+            conclusion_grade=Grade.UNQUALIFIED,
             weight=1.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="焊接连接"),
@@ -131,7 +131,7 @@ class TestPartialMatch:
         assessment = evaluator.evaluate("v1", subgraph)
         # Only first rule matches: 0.8*1.0 / 2.0 = 0.4
         assert assessment.overall_score == 0.4
-        assert assessment.overall_grade == Grade.MEDIUM
+        assert assessment.overall_grade == Grade.QUALIFIED
         assert assessment.rule_matches[0].matched is True
         assert assessment.rule_matches[1].matched is False
 
@@ -139,7 +139,7 @@ class TestPartialMatch:
         engine.create_rule(L4RuleCreate(
             name="multi",
             conclusion_score=0.9,
-            conclusion_grade=Grade.HIGH,
+            conclusion_grade=Grade.GOOD,
             weight=1.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接"),
@@ -160,7 +160,7 @@ class TestWeightedScoring:
         engine.create_rule(L4RuleCreate(
             name="重要规则",
             conclusion_score=1.0,
-            conclusion_grade=Grade.HIGH,
+            conclusion_grade=Grade.GOOD,
             weight=3.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接"),
@@ -169,7 +169,7 @@ class TestWeightedScoring:
         engine.create_rule(L4RuleCreate(
             name="次要规则",
             conclusion_score=0.5,
-            conclusion_grade=Grade.MEDIUM,
+            conclusion_grade=Grade.QUALIFIED,
             weight=1.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_TOOL", target_label="标准扳手"),
@@ -178,14 +178,14 @@ class TestWeightedScoring:
         assessment = evaluator.evaluate("v1", subgraph)
         # (1.0*3.0 + 0.5*1.0) / (3.0 + 1.0) = 3.5/4.0 = 0.875
         assert abs(assessment.overall_score - 0.875) < 0.001
-        assert assessment.overall_grade == Grade.HIGH
+        assert assessment.overall_grade == Grade.GOOD
 
     def test_grade_boundaries(self, engine, evaluator, subgraph):
         # Test MEDIUM boundary (score >= 0.4, < 0.7)
         engine.create_rule(L4RuleCreate(
             name="medium_rule",
             conclusion_score=0.5,
-            conclusion_grade=Grade.MEDIUM,
+            conclusion_grade=Grade.QUALIFIED,
             weight=1.0,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接"),
@@ -193,7 +193,7 @@ class TestWeightedScoring:
         ))
         assessment = evaluator.evaluate("v1", subgraph)
         assert assessment.overall_score == 0.5
-        assert assessment.overall_grade == Grade.MEDIUM
+        assert assessment.overall_grade == Grade.QUALIFIED
 
 
 # ── Reasoning Path ──
@@ -204,7 +204,7 @@ class TestReasoningPath:
         engine.create_rule(L4RuleCreate(
             name="r1",
             conclusion_score=0.8,
-            conclusion_grade=Grade.HIGH,
+            conclusion_grade=Grade.GOOD,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接"),
             ],
@@ -212,7 +212,7 @@ class TestReasoningPath:
         engine.create_rule(L4RuleCreate(
             name="r2",
             conclusion_score=0.5,
-            conclusion_grade=Grade.MEDIUM,
+            conclusion_grade=Grade.QUALIFIED,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="焊接连接"),
             ],
@@ -228,7 +228,7 @@ class TestReasoningPath:
         engine.create_rule(L4RuleCreate(
             name="r1",
             conclusion_score=0.8,
-            conclusion_grade=Grade.HIGH,
+            conclusion_grade=Grade.GOOD,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接"),
             ],
@@ -236,7 +236,7 @@ class TestReasoningPath:
         engine.create_rule(L4RuleCreate(
             name="r2",
             conclusion_score=0.5,
-            conclusion_grade=Grade.MEDIUM,
+            conclusion_grade=Grade.QUALIFIED,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="焊接连接"),
             ],
@@ -262,7 +262,7 @@ class TestNoConditions:
         engine.create_rule(L4RuleCreate(
             name="默认规则",
             conclusion_score=0.5,
-            conclusion_grade=Grade.MEDIUM,
+            conclusion_grade=Grade.QUALIFIED,
             conditions=[],
         ))
         assessment = evaluator.evaluate("v1", subgraph)
@@ -278,20 +278,20 @@ class TestFeedback:
         engine.create_rule(L4RuleCreate(
             name="r1",
             conclusion_score=0.8,
-            conclusion_grade=Grade.HIGH,
+            conclusion_grade=Grade.GOOD,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接"),
             ],
         ))
         assessment = evaluator.evaluate("v1", subgraph)
-        assert "高" in assessment.feedback_text
+        assert "良好" in assessment.feedback_text
         assert "1/1" in assessment.feedback_text
 
     def test_feedback_lists_unmatched(self, engine, evaluator, subgraph):
         engine.create_rule(L4RuleCreate(
             name="失败规则",
             conclusion_score=0.5,
-            conclusion_grade=Grade.MEDIUM,
+            conclusion_grade=Grade.QUALIFIED,
             conditions=[
                 L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="焊接连接"),
             ],

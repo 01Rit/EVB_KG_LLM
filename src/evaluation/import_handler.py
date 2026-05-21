@@ -20,7 +20,7 @@ class ImportHandler:
 - name: 规则名称
 - description: 规则描述
 - conclusion_score: 匹配时的评分 (0-1)
-- conclusion_grade: 等级 ("高"/"中"/"低")
+- conclusion_grade: 等级 ("优秀"/"良好"/"合格"/"不可再制造")
 - weight: 规则权重 (默认1.0)
 - conditions: 条件列表，每项包含 condition_type 和 target_label
   condition_type 可选: REQUIRES_CONNECTION, REQUIRES_TOOL, REQUIRES_STRUCTURE, CONSTRAINED_BY
@@ -40,9 +40,24 @@ class ImportHandler:
         for doc_id in doc_ids:
             try:
                 doc_content = self._fetch_doc_content(doc_id)
+                logger.info(f"Fetched doc content length: {len(doc_content)}")
                 prompt = self.EXTRACTION_PROMPT.format(doc_content=doc_content)
-                response = self.llm.generate(prompt, temperature=0.1, max_tokens=2000)
-                rules_data = json.loads(response)
+                response = self.llm.generate(prompt)
+                logger.info(f"LLM response length: {len(response)}")
+                # Strip markdown code blocks if present
+                cleaned = response.strip()
+                if cleaned.startswith('```'):
+                    # Remove first line (```json or ```)
+                    lines = cleaned.split('\n')
+                    if lines[0].strip().startswith('```'):
+                        lines = lines[1:]
+                    # Remove last line (```)
+                    if lines and lines[-1].strip() == '```':
+                        lines = lines[:-1]
+                    cleaned = '\n'.join(lines)
+                logger.info(f"Cleaned response length: {len(cleaned)}")
+                rules_data = json.loads(cleaned)
+                logger.info(f"Parsed {len(rules_data)} rules")
                 for rd in rules_data:
                     cand_id = f"cand_{uuid.uuid4().hex[:8]}"
                     conditions = [L4RuleCondition(**c) for c in rd.get("conditions", [])]
@@ -51,7 +66,7 @@ class ImportHandler:
                         name=rd.get("name", ""),
                         description=rd.get("description", ""),
                         conclusion_score=rd.get("conclusion_score", 0.5),
-                        conclusion_grade=Grade(rd.get("conclusion_grade", "中")),
+                        conclusion_grade=Grade(rd.get("conclusion_grade", "合格")),
                         weight=rd.get("weight", 1.0),
                         conditions=conditions,
                         source_doc_id=doc_id,

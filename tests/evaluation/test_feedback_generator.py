@@ -20,7 +20,7 @@ def sample_rules():
             rule_id="rule_001",
             name="螺栓连接易拆卸",
             conclusion_score=0.8,
-            conclusion_grade=Grade.HIGH,
+            conclusion_grade=Grade.GOOD,
             weight=1.0,
             status=RuleStatus.ACTIVE,
             conditions=[
@@ -31,7 +31,7 @@ def sample_rules():
             rule_id="rule_002",
             name="工具通用性",
             conclusion_score=0.6,
-            conclusion_grade=Grade.MEDIUM,
+            conclusion_grade=Grade.QUALIFIED,
             weight=1.0,
             status=RuleStatus.ACTIVE,
             conditions=[
@@ -58,17 +58,17 @@ def _make_assessment(grade: Grade, score: float, matches: list[RuleMatchDetail])
 
 class TestSummary:
     def test_high_grade_summary(self, generator, sample_rules):
-        assessment = _make_assessment(Grade.HIGH, 0.85, [
+        assessment = _make_assessment(Grade.GOOD, 0.85, [
             RuleMatchDetail(rule_id="rule_001", rule_name="螺栓连接易拆卸", matched=True, score_contribution=0.8),
             RuleMatchDetail(rule_id="rule_002", rule_name="工具通用性", matched=True, score_contribution=0.6),
         ])
         result = generator.generate(assessment, sample_rules)
-        assert "优秀" in result["summary"]
+        assert "良好" in result["summary"]
         assert "2" in result["summary"]
         assert "0.85" in result["summary"]
 
     def test_medium_grade_summary(self, generator, sample_rules):
-        assessment = _make_assessment(Grade.MEDIUM, 0.5, [
+        assessment = _make_assessment(Grade.QUALIFIED, 0.5, [
             RuleMatchDetail(rule_id="rule_001", rule_name="螺栓连接易拆卸", matched=True, score_contribution=0.8),
             RuleMatchDetail(rule_id="rule_002", rule_name="工具通用性", matched=False, score_contribution=0.0),
         ])
@@ -76,7 +76,7 @@ class TestSummary:
         assert "合格" in result["summary"]
 
     def test_low_grade_summary(self, generator, sample_rules):
-        assessment = _make_assessment(Grade.LOW, 0.2, [
+        assessment = _make_assessment(Grade.UNQUALIFIED, 0.2, [
             RuleMatchDetail(rule_id="rule_001", rule_name="螺栓连接易拆卸", matched=False, score_contribution=0.0),
             RuleMatchDetail(rule_id="rule_002", rule_name="工具通用性", matched=False, score_contribution=0.0),
         ])
@@ -89,7 +89,7 @@ class TestSummary:
 
 class TestSuggestions:
     def test_suggestions_for_unmatched(self, generator, sample_rules):
-        assessment = _make_assessment(Grade.MEDIUM, 0.5, [
+        assessment = _make_assessment(Grade.QUALIFIED, 0.5, [
             RuleMatchDetail(rule_id="rule_001", rule_name="螺栓连接易拆卸", matched=True, score_contribution=0.8),
             RuleMatchDetail(
                 rule_id="rule_002", rule_name="工具通用性",
@@ -106,7 +106,7 @@ class TestSuggestions:
         assert s["conditions"][0]["target_label"] == "标准扳手"
 
     def test_no_suggestions_when_all_match(self, generator, sample_rules):
-        assessment = _make_assessment(Grade.HIGH, 0.85, [
+        assessment = _make_assessment(Grade.GOOD, 0.85, [
             RuleMatchDetail(rule_id="rule_001", rule_name="螺栓连接易拆卸", matched=True, score_contribution=0.8),
             RuleMatchDetail(rule_id="rule_002", rule_name="工具通用性", matched=True, score_contribution=0.6),
         ])
@@ -119,7 +119,7 @@ class TestSuggestions:
 
 class TestRisks:
     def test_low_grade_risk(self, generator, sample_rules):
-        assessment = _make_assessment(Grade.LOW, 0.2, [
+        assessment = _make_assessment(Grade.UNQUALIFIED, 0.2, [
             RuleMatchDetail(rule_id="rule_001", rule_name="螺栓连接易拆卸", matched=False, score_contribution=0.0),
             RuleMatchDetail(rule_id="rule_002", rule_name="工具通用性", matched=False, score_contribution=0.0),
         ])
@@ -129,7 +129,7 @@ class TestRisks:
         assert "全面审查" in high_risks[0]["message"]
 
     def test_high_weight_unmatched_risk(self, generator, sample_rules):
-        assessment = _make_assessment(Grade.MEDIUM, 0.4, [
+        assessment = _make_assessment(Grade.QUALIFIED, 0.4, [
             RuleMatchDetail(rule_id="rule_001", rule_name="螺栓连接易拆卸", matched=False, score_contribution=0.0),
             RuleMatchDetail(rule_id="rule_002", rule_name="工具通用性", matched=True, score_contribution=0.6),
         ])
@@ -139,7 +139,7 @@ class TestRisks:
         assert "螺栓连接易拆卸" in medium_risks[0]["message"]
 
     def test_no_risks_when_good(self, generator, sample_rules):
-        assessment = _make_assessment(Grade.HIGH, 0.85, [
+        assessment = _make_assessment(Grade.GOOD, 0.85, [
             RuleMatchDetail(rule_id="rule_001", rule_name="螺栓连接易拆卸", matched=True, score_contribution=0.8),
             RuleMatchDetail(rule_id="rule_002", rule_name="工具通用性", matched=True, score_contribution=0.6),
         ])
@@ -152,7 +152,7 @@ class TestRisks:
 
 class TestRawFeedback:
     def test_raw_feedback_included(self, generator, sample_rules):
-        assessment = _make_assessment(Grade.HIGH, 0.85, [])
+        assessment = _make_assessment(Grade.GOOD, 0.85, [])
         assessment.feedback_text = "原始反馈内容"
         result = generator.generate(assessment, sample_rules)
         assert result["raw_feedback"] == "原始反馈内容"
@@ -167,7 +167,7 @@ class TestLLMFeedback:
         mock_llm.generate.return_value = "LLM生成的反馈意见"
         gen = FeedbackGenerator(llm_client=mock_llm)
 
-        assessment = _make_assessment(Grade.MEDIUM, 0.5, [
+        assessment = _make_assessment(Grade.QUALIFIED, 0.5, [
             RuleMatchDetail(rule_id="rule_001", rule_name="螺栓连接易拆卸", matched=True, score_contribution=0.8),
             RuleMatchDetail(rule_id="rule_002", rule_name="工具通用性", matched=False, score_contribution=0.0),
         ])
@@ -180,7 +180,7 @@ class TestLLMFeedback:
         mock_llm.generate.side_effect = Exception("LLM error")
         gen = FeedbackGenerator(llm_client=mock_llm)
 
-        assessment = _make_assessment(Grade.HIGH, 0.85, [
+        assessment = _make_assessment(Grade.GOOD, 0.85, [
             RuleMatchDetail(rule_id="rule_001", rule_name="螺栓连接易拆卸", matched=True, score_contribution=0.8),
         ])
         result = gen.generate(assessment, sample_rules)
@@ -188,6 +188,6 @@ class TestLLMFeedback:
         assert "summary" in result  # still generates non-LLM feedback
 
     def test_no_llm_client(self, generator, sample_rules):
-        assessment = _make_assessment(Grade.HIGH, 0.85, [])
+        assessment = _make_assessment(Grade.GOOD, 0.85, [])
         result = generator.generate(assessment, sample_rules)
         assert "llm_feedback" not in result

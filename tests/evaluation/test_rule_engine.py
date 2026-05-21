@@ -24,7 +24,7 @@ def sample_create():
         name="螺栓连接易拆卸",
         description="使用螺栓连接的部件易于拆卸",
         conclusion_score=0.8,
-        conclusion_grade=Grade.HIGH,
+        conclusion_grade=Grade.GOOD,
         weight=1.0,
         conditions=[
             L4RuleCondition(
@@ -64,7 +64,7 @@ class TestCRUD:
         assert rule.rule_id.startswith("rule_")
         assert rule.name == "螺栓连接易拆卸"
         assert rule.conclusion_score == 0.8
-        assert rule.conclusion_grade == Grade.HIGH
+        assert rule.conclusion_grade == Grade.GOOD
         assert rule.status == RuleStatus.ACTIVE
         assert len(rule.conditions) == 1
 
@@ -77,7 +77,7 @@ class TestCRUD:
         engine.create_rule(L4RuleCreate(
             name="规则2",
             conclusion_score=0.5,
-            conclusion_grade=Grade.MEDIUM,
+            conclusion_grade=Grade.QUALIFIED,
         ))
         rules = engine.get_rules()
         assert len(rules) == 2
@@ -129,7 +129,7 @@ class TestConditionMatching:
     def test_requires_connection_match(self, engine, subgraph):
         cond = L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接")
         rule_create = L4RuleCreate(
-            name="test", conclusion_score=0.5, conclusion_grade=Grade.MEDIUM,
+            name="test", conclusion_score=0.5, conclusion_grade=Grade.QUALIFIED,
             conditions=[cond],
         )
         rule = engine.create_rule(rule_create)
@@ -140,7 +140,7 @@ class TestConditionMatching:
     def test_requires_connection_no_match(self, engine, subgraph):
         cond = L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="焊接连接")
         rule_create = L4RuleCreate(
-            name="test", conclusion_score=0.5, conclusion_grade=Grade.MEDIUM,
+            name="test", conclusion_score=0.5, conclusion_grade=Grade.QUALIFIED,
             conditions=[cond],
         )
         rule = engine.create_rule(rule_create)
@@ -151,7 +151,7 @@ class TestConditionMatching:
     def test_requires_tool_match(self, engine, subgraph):
         cond = L4RuleCondition(condition_type="REQUIRES_TOOL", target_label="标准扳手")
         rule_create = L4RuleCreate(
-            name="test", conclusion_score=0.5, conclusion_grade=Grade.MEDIUM,
+            name="test", conclusion_score=0.5, conclusion_grade=Grade.QUALIFIED,
             conditions=[cond],
         )
         rule = engine.create_rule(rule_create)
@@ -161,7 +161,7 @@ class TestConditionMatching:
     def test_requires_structure_match(self, engine, subgraph):
         cond = L4RuleCondition(condition_type="REQUIRES_STRUCTURE", target_label="可直达")
         rule_create = L4RuleCreate(
-            name="test", conclusion_score=0.5, conclusion_grade=Grade.MEDIUM,
+            name="test", conclusion_score=0.5, conclusion_grade=Grade.QUALIFIED,
             conditions=[cond],
         )
         rule = engine.create_rule(rule_create)
@@ -171,7 +171,7 @@ class TestConditionMatching:
     def test_constrained_by_match(self, engine, subgraph):
         cond = L4RuleCondition(condition_type="CONSTRAINED_BY", target_label="安全规范A")
         rule_create = L4RuleCreate(
-            name="test", conclusion_score=0.5, conclusion_grade=Grade.MEDIUM,
+            name="test", conclusion_score=0.5, conclusion_grade=Grade.QUALIFIED,
             conditions=[cond],
         )
         rule = engine.create_rule(rule_create)
@@ -181,7 +181,7 @@ class TestConditionMatching:
     def test_unknown_condition_type(self, engine, subgraph):
         cond = L4RuleCondition(condition_type="UNKNOWN_TYPE", target_label="anything")
         rule_create = L4RuleCreate(
-            name="test", conclusion_score=0.5, conclusion_grade=Grade.MEDIUM,
+            name="test", conclusion_score=0.5, conclusion_grade=Grade.QUALIFIED,
             conditions=[cond],
         )
         rule = engine.create_rule(rule_create)
@@ -199,7 +199,7 @@ class TestRuleMatching:
             L4RuleCondition(condition_type="REQUIRES_TOOL", target_label="标准扳手"),
         ]
         rule_create = L4RuleCreate(
-            name="multi", conclusion_score=0.9, conclusion_grade=Grade.HIGH,
+            name="multi", conclusion_score=0.9, conclusion_grade=Grade.GOOD,
             conditions=conds,
         )
         rule = engine.create_rule(rule_create)
@@ -214,7 +214,7 @@ class TestRuleMatching:
             L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="焊接连接"),
         ]
         rule_create = L4RuleCreate(
-            name="partial", conclusion_score=0.7, conclusion_grade=Grade.MEDIUM,
+            name="partial", conclusion_score=0.7, conclusion_grade=Grade.QUALIFIED,
             conditions=conds,
         )
         rule = engine.create_rule(rule_create)
@@ -225,7 +225,7 @@ class TestRuleMatching:
 
     def test_no_conditions_always_match(self, engine, subgraph):
         rule_create = L4RuleCreate(
-            name="no_conds", conclusion_score=0.5, conclusion_grade=Grade.LOW,
+            name="no_conds", conclusion_score=0.5, conclusion_grade=Grade.UNQUALIFIED,
             conditions=[],
         )
         rule = engine.create_rule(rule_create)

@@ -114,7 +114,7 @@ class Evaluator:
             assessment_id=f"assess_{uuid.uuid4().hex[:8]}",
             version_id=version_id,
             overall_score=0.0,
-            overall_grade=Grade.LOW,
+            overall_grade=Grade.UNQUALIFIED,
             rule_matches=[],
             feedback_text="No active rules available for evaluation.",
             status=AssessmentStatus.PENDING_REVIEW,
@@ -122,10 +122,10 @@ class Evaluator:
 
     def _score_to_grade(self, score: float) -> Grade:
         if score >= 0.7:
-            return Grade.HIGH
+            return Grade.GOOD
         elif score >= 0.4:
-            return Grade.MEDIUM
-        return Grade.LOW
+            return Grade.QUALIFIED
+        return Grade.UNQUALIFIED
 
     def _format_pattern(self, details: list[dict]) -> str:
         parts = []

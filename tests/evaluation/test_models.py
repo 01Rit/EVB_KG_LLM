@@ -2,7 +2,7 @@
 import pytest
 from src.evaluation.models import (
     RuleStatus, VersionStatus, AssessmentStatus, ActionOperation,
-    ActionStatus, FeedbackType, SuggestionType, Grade,
+    ActionStatus, FeedbackType, SuggestionType, Grade, Dimension,
     L4RuleCondition, L4RuleCreate, L4Rule,
     GradeStandard, ComparisonRef, FeedbackTemplate,
     DesignVersionCreate, DesignVersion, DesignVersionDetail,
@@ -11,6 +11,7 @@ from src.evaluation.models import (
     OptimizationActionCreate, OptimizationAction,
     DesignPredictionRequest, DesignPredictionResponse,
     RuleExtractRequest, CandidateRule,
+    DimensionScore, GradeThreshold, GradeConfig,
 )
 
 
@@ -63,10 +64,17 @@ def test_suggestion_type_enum():
     assert SuggestionType.INFO.value == "info"
 
 
+def test_dimension_enum():
+    assert Dimension.TECHNICAL.value == "technical"
+    assert Dimension.ECONOMIC.value == "economic"
+    assert Dimension.ENVIRONMENTAL.value == "environmental"
+
+
 def test_grade_enum():
-    assert Grade.HIGH.value == "高"
-    assert Grade.MEDIUM.value == "中"
-    assert Grade.LOW.value == "低"
+    assert Grade.EXCELLENT.value == "优秀"
+    assert Grade.GOOD.value == "良好"
+    assert Grade.QUALIFIED.value == "合格"
+    assert Grade.UNQUALIFIED.value == "不可再制造"
 
 
 # ── L4RuleCondition tests ──
@@ -93,10 +101,10 @@ def test_l4rule_condition_full():
 # ── L4RuleCreate tests ──
 
 def test_l4rule_create_minimal():
-    rule = L4RuleCreate(name="test_rule", conclusion_score=0.8, conclusion_grade=Grade.HIGH)
+    rule = L4RuleCreate(name="test_rule", conclusion_score=0.8, conclusion_grade=Grade.GOOD)
     assert rule.name == "test_rule"
     assert rule.conclusion_score == 0.8
-    assert rule.conclusion_grade == Grade.HIGH
+    assert rule.conclusion_grade == Grade.GOOD
     assert rule.weight == 1.0
     assert rule.conditions == []
     assert rule.description == ""
@@ -111,7 +119,7 @@ def test_l4rule_create_with_conditions():
         name="bolt_rule",
         description="Requires bolt connection",
         conclusion_score=0.9,
-        conclusion_grade=Grade.HIGH,
+        conclusion_grade=Grade.GOOD,
         weight=1.5,
         conditions=conditions,
         source_doc_id="doc_001",
@@ -124,15 +132,15 @@ def test_l4rule_create_with_conditions():
 
 def test_l4rule_create_score_validation():
     with pytest.raises(Exception):
-        L4RuleCreate(name="bad", conclusion_score=1.5, conclusion_grade=Grade.HIGH)
+        L4RuleCreate(name="bad", conclusion_score=1.5, conclusion_grade=Grade.GOOD)
     with pytest.raises(Exception):
-        L4RuleCreate(name="bad", conclusion_score=-0.1, conclusion_grade=Grade.LOW)
+        L4RuleCreate(name="bad", conclusion_score=-0.1, conclusion_grade=Grade.UNQUALIFIED)
 
 
 # ── L4Rule tests ──
 
 def test_l4rule_defaults():
-    rule = L4Rule(rule_id="r001", name="test", conclusion_score=0.5, conclusion_grade=Grade.MEDIUM)
+    rule = L4Rule(rule_id="r001", name="test", conclusion_score=0.5, conclusion_grade=Grade.QUALIFIED)
     assert rule.status == RuleStatus.PENDING_REVIEW
     assert rule.hit_count == 0
     assert rule.created_at is None
@@ -144,7 +152,7 @@ def test_l4rule_full():
         name="full_rule",
         description="A full rule",
         conclusion_score=0.7,
-        conclusion_grade=Grade.MEDIUM,
+        conclusion_grade=Grade.QUALIFIED,
         weight=2.0,
         status=RuleStatus.ACTIVE,
         conditions=[L4RuleCondition(condition_type="REQUIRES_STRUCTURE", target_label="可直达")],
@@ -281,13 +289,13 @@ def test_l4_assessment():
         assessment_id="a001",
         version_id="v001",
         overall_score=0.75,
-        overall_grade=Grade.HIGH,
+        overall_grade=Grade.GOOD,
         rule_matches=matches,
         feedback_text="Good design",
         status=AssessmentStatus.PENDING_REVIEW,
     )
     assert assessment.overall_score == 0.75
-    assert assessment.overall_grade == Grade.HIGH
+    assert assessment.overall_grade == Grade.GOOD
     assert len(assessment.rule_matches) == 2
     assert assessment.rule_matches[0].matched is True
 
@@ -297,7 +305,7 @@ def test_l4_assessment_status():
         assessment_id="a002",
         version_id="v002",
         overall_score=0.4,
-        overall_grade=Grade.LOW,
+        overall_grade=Grade.UNQUALIFIED,
         status=AssessmentStatus.CONFIRMED,
     )
     assert a.status == AssessmentStatus.CONFIRMED
@@ -462,13 +470,13 @@ def test_design_prediction_response():
     ]
     resp = DesignPredictionResponse(
         predicted_score=0.82,
-        predicted_grade=Grade.HIGH,
+        predicted_grade=Grade.GOOD,
         matched_rules=matches,
         risk_factors=["Complex assembly"],
         suggestions=["Use snap-fit where possible"],
     )
     assert resp.predicted_score == 0.82
-    assert resp.predicted_grade == Grade.HIGH
+    assert resp.predicted_grade == Grade.GOOD
     assert len(resp.risk_factors) == 1
     assert len(resp.suggestions) == 1
 
@@ -491,7 +499,7 @@ def test_candidate_rule():
         name="Extracted rule",
         description="Auto-extracted from document",
         conclusion_score=0.6,
-        conclusion_grade=Grade.MEDIUM,
+        conclusion_grade=Grade.QUALIFIED,
         weight=1.0,
         conditions=[
             L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接"),
@@ -502,14 +510,14 @@ def test_candidate_rule():
     )
     assert cr.consistency_valid is True
     assert len(cr.conditions) == 1
-    assert cr.conclusion_grade == Grade.MEDIUM
+    assert cr.conclusion_grade == Grade.QUALIFIED
 
 
 def test_candidate_rule_defaults():
     cr = CandidateRule(rule_id="cr002", name="basic")
     assert cr.description == ""
     assert cr.conclusion_score == 0.5
-    assert cr.conclusion_grade == Grade.MEDIUM
+    assert cr.conclusion_grade == Grade.QUALIFIED
     assert cr.consistency_valid is False
     assert cr.consistency_errors == []
 
@@ -532,7 +540,7 @@ def test_l4rule_serialization():
         rule_id="r001",
         name="test",
         conclusion_score=0.8,
-        conclusion_grade=Grade.HIGH,
+        conclusion_grade=Grade.GOOD,
         conditions=[L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接")],
     )
     data = rule.model_dump()
@@ -546,15 +554,15 @@ def test_l4_assessment_serialization():
         assessment_id="a001",
         version_id="v001",
         overall_score=0.75,
-        overall_grade=Grade.HIGH,
+        overall_grade=Grade.GOOD,
     )
     data = assessment.model_dump()
-    assert data["overall_grade"] == "高"
+    assert data["overall_grade"] == "良好"
     assert data["status"] == "pending_review"
 
 
 def test_design_prediction_response_serialization():
-    resp = DesignPredictionResponse(predicted_score=0.9, predicted_grade=Grade.HIGH)
+    resp = DesignPredictionResponse(predicted_score=0.9, predicted_grade=Grade.GOOD)
     data = resp.model_dump()
-    assert data["predicted_grade"] == "高"
+    assert data["predicted_grade"] == "良好"
     assert data["matched_rules"] == []

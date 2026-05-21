@@ -51,10 +51,17 @@ class SuggestionType(str, Enum):
     INFO = "info"
 
 
+class Dimension(str, Enum):
+    TECHNICAL = "technical"
+    ECONOMIC = "economic"
+    ENVIRONMENTAL = "environmental"
+
+
 class Grade(str, Enum):
-    HIGH = "高"
-    MEDIUM = "中"
-    LOW = "低"
+    EXCELLENT = "优秀"
+    GOOD = "良好"
+    QUALIFIED = "合格"
+    UNQUALIFIED = "不可再制造"
 
 
 # ── L4 Rule ──
@@ -65,6 +72,7 @@ class L4RuleCondition(BaseModel):
     target_label: str    # e.g. "螺栓连接", "标准扳手", "可直达"
     target_id: Optional[str] = None
     effect: Optional[float] = None
+    fuzzy_threshold: float = 0.6
 
 
 class L4RuleCreate(BaseModel):
@@ -75,6 +83,7 @@ class L4RuleCreate(BaseModel):
     weight: float = 1.0
     conditions: list[L4RuleCondition] = []
     source_doc_id: Optional[str] = None
+    dimension: Dimension = Dimension.TECHNICAL
 
 
 class L4Rule(BaseModel):
@@ -90,6 +99,7 @@ class L4Rule(BaseModel):
     hit_count: int = 0
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    dimension: Dimension = Dimension.TECHNICAL
 
 
 # ── Grade Standard ──
@@ -151,6 +161,23 @@ class DesignVersionDetail(DesignVersion):
 
 # ── L4 Assessment ──
 
+class DimensionScore(BaseModel):
+    dimension: Dimension
+    score: Optional[float] = None
+    rsr_value: Optional[float] = None
+    rank: Optional[int] = None
+    grade: Grade
+    matched_rules: int
+    total_rules: int
+
+
+class GradeThreshold(BaseModel):
+    excellent: float
+    good: float
+    qualified: float
+    regression: dict
+
+
 class RuleMatchDetail(BaseModel):
     rule_id: str
     rule_name: str
@@ -173,6 +200,12 @@ class L4Assessment(BaseModel):
     feedback_text: str = ""
     status: AssessmentStatus = AssessmentStatus.PENDING_REVIEW
     created_at: Optional[str] = None
+    dimension_scores: list[DimensionScore] = []
+    evaluation_mode: str = "single"
+    dimension_weights: dict = {}
+    grade_thresholds: Optional[GradeThreshold] = None
+    rank_matrix: Optional[list[dict]] = None
+    per_version: Optional[list[dict]] = None
 
 
 # ── ReasoningPath ──
@@ -262,9 +295,20 @@ class CandidateRule(BaseModel):
     name: str
     description: str = ""
     conclusion_score: float = 0.5
-    conclusion_grade: Grade = Grade.MEDIUM
+    conclusion_grade: Grade = Grade.QUALIFIED
     weight: float = 1.0
     conditions: list[L4RuleCondition] = []
     source_doc_id: Optional[str] = None
     consistency_valid: bool = False
     consistency_errors: list[str] = []
+    dimension: Dimension = Dimension.TECHNICAL
+    fuzzy_threshold: float = 0.6
+    duplicate_status: Optional[str] = None
+    duplicate_of: Optional[str] = None
+
+
+class GradeConfig(BaseModel):
+    excellent_threshold: float = 0.75
+    good_threshold: float = 0.55
+    qualified_threshold: float = 0.35
+    source: str = "default"
