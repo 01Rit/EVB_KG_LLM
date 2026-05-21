@@ -32,6 +32,76 @@ def _auto_score_component(component_name: str, battery_model: str, neo4j_client)
         logger.warning(f"Auto-scoring failed for {component_name}: {e}")
 
 
+EXTRACT_EVAL_ATTR_PROMPT = """从以下文本中提取零部件 "{name}" 的再制造评价属性。
+返回纯 JSON（无代码块标记），15 个字段，每项为精确描述文本。如果文本中未提及某项，填写空字符串 ""。
+
+字段说明:
+- modularity: 电池系统模块化形式 (例: CTP / CTM / MTP / CTC / 独立模组)
+- connection_type: 部件连接方式 (例: M6六角螺栓连接 / 激光焊接 / 超声波焊接 / 结构胶粘接 / 卡扣连接)
+- connection_reversibility: 连接可逆特性 (例: 可重复拆装5次 / 拆卸需破坏胶层 / 焊点需切割分离)
+- tool_requirements: 拆卸所需工具 (例: T20 Torx螺丝刀 / 电动绝缘扳手 / 激光切割机 / 绝缘套筒)
+- accessibility: 部件可达性与操作空间 (例: 需移除上盖后触达 / 位于Pack底部 / 机械臂侧向可进入)
+- safety_risks: 拆卸或再制造中的风险源 (例: 800V高压母排 / 电解液泄漏风险 / 热失控传播风险)
+- material_type: 部件主体材料 (例: 6061铝合金 / PA66+GF30 / 铜镍复合材料)
+- estimated_time: 典型拆卸工时 (例: 单人拆卸约8 min / 双人协作约15 min)
+- reusability: 再制造或梯次利用潜力 (例: 可直接用于梯次储能 / 需更换密封件后复用)
+- inspection_method: 再制造前检测方法 (例: 红外热像检测 / 超声探伤 / X-ray焊点检测)
+- seal_type: 密封结构与密封材料 (例: 双组分环氧密封胶 / IP67硅胶圈 / 激光焊缝密封)
+- disassembly_order: 拆卸过程中的顺序约束 (例: 需先断开高压回路 / 需先拆冷却板)
+- reattachment_torque: 再组装扭矩规范 (例: M8螺栓18 N·m / Busbar固定扭矩12 N·m)
+- fault_clearing: 再制造后的软件处理要求 (例: 需使用OEM诊断仪重置BMS / 需清除DTC故障码)
+- hazardous_material: 部件涉及的危险介质或污染源 (例: 冷却液含乙二醇 / 电解液含LiPF6)
+
+文本:
+{text}
+"""
+
+
+def _extract_eval_attributes(component_name: str, source_text: str, neo4j_client, component_id: str = None, component_name_match: str = None) -> None:
+    """Extract 15 re-manufacturing eval attributes from source text and store on Component node."""
+    import json
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        from src.utils.llm_client import LLMClient
+        from src.config import settings
+
+        if not source_text or len(source_text.strip()) < 20:
+            logger.info(f"Source text too short for attribute extraction of {component_name}")
+            return
+
+        llm = LLMClient(
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+            model=settings.llm_model
+        )
+
+        prompt = EXTRACT_EVAL_ATTR_PROMPT.format(name=component_name, text=source_text[:4000])
+        response = llm.chat(prompt)
+
+        # Parse JSON from response
+        raw = response.strip()
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+        attrs = json.loads(raw)
+
+        # Store as JSON string on Component node
+        target_match = "MATCH (c:Component {id: $id})" if component_id else "MATCH (c:Component {name: $name})"
+        target_param = {"id": component_id} if component_id else {"name": component_name_match or component_name}
+
+        neo4j_client.execute_query(
+            f"{target_match} SET c.eval_attributes = $attrs",
+            {**target_param, "attrs": json.dumps(attrs, ensure_ascii=False)},
+        )
+        logger.info(f"Extracted eval_attributes for {component_name}")
+
+    except Exception as e:
+        logger.warning(f"Eval attribute extraction failed for {component_name}: {e}")
+
+
 class L1ComponentData(BaseModel):
     name: str
     battery_model: str
@@ -298,9 +368,10 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
                 SET n.battery_model = COALESCE($battery_model, 'unknown')
                 RETURN n
                 '''
+                node_id = str(uuid.uuid4())
                 try:
                     result = neo4j.execute_query(cypher, {
-                        'id': str(uuid.uuid4()),
+                        'id': node_id,
                         'name': node_name,
                         'battery_model': node_battery_model
                     })
@@ -311,6 +382,10 @@ async def import_l1_txt(file: UploadFile = File(...), background_tasks: Backgrou
                             _auto_score_component(node_name, node_battery_model, neo4j)
                         except Exception as score_err:
                             logger.warning(f"[L1 TXT Import] Scoring failed for {node_name}: {score_err}")
+                    try:
+                        _extract_eval_attributes(node_name, text, neo4j, component_id=node_id)
+                    except Exception as attr_err:
+                        logger.warning(f"[L1 TXT Import] Attr extraction failed for {node_name}: {attr_err}")
                 except Exception as e:
                     errors.append(f"Node error: {str(e)}")
 
@@ -484,6 +559,8 @@ def _is_garbled_text(text: str) -> bool:
 
 @router.post('/import/l1/pdf')
 async def import_l1_pdf(file: UploadFile = File(...)):
+    import logging
+    logger = logging.getLogger(__name__)
     content = await file.read()
 
     if len(content) > MAX_FILE_SIZE:
@@ -524,14 +601,20 @@ async def import_l1_pdf(file: UploadFile = File(...)):
                 existing_nodes.add(t['tail'])
 
         for node_name in existing_nodes:
+            node_id = str(uuid.uuid4())
             cypher = '''
-            MERGE (n:Entity {name: $name})
+            MERGE (n:Component {name: $name})
+            ON CREATE SET n.id = $id
             SET n.source_type = 'l1_import'
             RETURN n
             '''
             try:
-                neo4j.execute_query(cypher, {'name': node_name})
+                neo4j.execute_query(cypher, {'name': node_name, 'id': node_id})
                 nodes_created += 1
+                try:
+                    _extract_eval_attributes(node_name, text, neo4j, component_id=node_id)
+                except Exception as attr_err:
+                    logger.warning(f"[L1 PDF Import] Attr extraction failed for {node_name}: {attr_err}")
             except Exception as e:
                 errors.append(f"Node error: {str(e)}")
 
@@ -544,8 +627,8 @@ async def import_l1_pdf(file: UploadFile = File(...)):
                 continue
 
             cypher = '''
-            MATCH (h:Entity {name: $head})
-            MATCH (t:Entity {name: $tail})
+            MATCH (h:Component {name: $head})
+            MATCH (t:Component {name: $tail})
             MERGE (h)-[r:RELATES {type: $relation}]->(t)
             RETURN h, r, t
             '''
@@ -722,14 +805,20 @@ async def import_l1_markdown(file: UploadFile = File(...)):
                 existing_nodes.add(t['tail'])
 
         for node_name in existing_nodes:
+            node_id = str(uuid.uuid4())
             cypher = '''
             MERGE (n:Component {name: $name})
+            ON CREATE SET n.id = $id
             SET n.source_type = 'l1_markdown_import'
             RETURN n
             '''
             try:
-                neo4j.execute_query(cypher, {'name': node_name})
+                neo4j.execute_query(cypher, {'name': node_name, 'id': node_id})
                 nodes_created += 1
+                try:
+                    _extract_eval_attributes(node_name, text, neo4j, component_id=node_id)
+                except Exception as attr_err:
+                    logger.warning(f"[L1 Markdown Import] Attr extraction failed for {node_name}: {attr_err}")
             except Exception as e:
                 errors.append(f"Node error: {str(e)}")
 

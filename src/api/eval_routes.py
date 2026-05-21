@@ -331,3 +331,50 @@ async def reject_candidate(candidate_id: str):
     if not ok:
         raise HTTPException(status_code=404, detail="Candidate not found")
     return ApiResponse(data={"rejected": True})
+
+
+# ── Component Eval Attributes ──
+
+@router.get("/api/v1/evaluation/components/{component_id}/eval-attributes", response_model=ApiResponse)
+async def get_component_eval_attributes(component_id: str):
+    try:
+        rows = closed_loop.rule_engine.neo4j.execute_query(
+            "MATCH (c:Component {id: $id}) RETURN c.eval_attributes AS attrs, c.name AS name",
+            {"id": component_id},
+        )
+        if not rows:
+            raise HTTPException(status_code=404, detail="Component not found")
+        attrs = {}
+        raw = rows[0].get("attrs")
+        if raw:
+            import json
+            try:
+                attrs = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return ApiResponse(data={"component_id": component_id, "name": rows[0].get("name", ""), "eval_attributes": attrs})
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/api/v1/evaluation/components/{component_id}/eval-attributes", response_model=ApiResponse)
+async def update_component_eval_attributes(component_id: str, data: dict):
+    try:
+        import json
+        rows = closed_loop.rule_engine.neo4j.execute_query(
+            "MATCH (c:Component {id: $id}) RETURN c.name AS name",
+            {"id": component_id},
+        )
+        if not rows:
+            raise HTTPException(status_code=404, detail="Component not found")
+        closed_loop.rule_engine.neo4j.execute_query(
+            "MATCH (c:Component {id: $id}) SET c.eval_attributes = $attrs",
+            {"id": component_id, "attrs": json.dumps(data, ensure_ascii=False)},
+        )
+        return ApiResponse(data={"component_id": component_id, "eval_attributes": data})
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

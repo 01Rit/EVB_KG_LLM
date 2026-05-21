@@ -127,6 +127,11 @@ export const evaluationApi = {
   listCandidates: () => api.get('/evaluation/import/candidates'),
   approveCandidate: (id: string) => api.post(`/evaluation/import/approve/${id}`),
   rejectCandidate: (id: string) => api.post(`/evaluation/import/reject/${id}`),
+
+  // Component Eval Attributes
+  getEvalAttributes: (componentId: string) => api.get(`/evaluation/components/${componentId}/eval-attributes`),
+  updateEvalAttributes: (componentId: string, data: Record<string, string>) =>
+    api.put(`/evaluation/components/${componentId}/eval-attributes`, data),
 };
 
 export default api

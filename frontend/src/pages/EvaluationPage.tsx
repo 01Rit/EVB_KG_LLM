@@ -124,6 +124,11 @@ export default function EvaluationPage() {
   const [graphNodes, setGraphNodes] = useState<any[]>([]);
   const [graphEdges, setGraphEdges] = useState<any[]>([]);
 
+  // Component eval attributes state
+  const [editingAttrs, setEditingAttrs] = useState<string | null>(null);
+  const [attrForm, setAttrForm] = useState<Record<string, string>>({});
+  const [attrLoading, setAttrLoading] = useState(false);
+
   useEffect(() => {
     loadVersions();
   }, []);
@@ -218,6 +223,50 @@ export default function EvaluationPage() {
         ? prev.connection_ids.filter(x => x !== key)
         : [...prev.connection_ids, key],
     }));
+  }
+
+  const EVAL_ATTR_FIELDS = [
+    { key: 'modularity', label: '模块化形式', placeholder: '例: CTP / CTM / MTP / CTC' },
+    { key: 'connection_type', label: '连接方式', placeholder: '例: M6六角螺栓连接 / 激光焊接' },
+    { key: 'connection_reversibility', label: '连接可逆性', placeholder: '例: 可重复拆装5次' },
+    { key: 'tool_requirements', label: '所需工具', placeholder: '例: T20 Torx螺丝刀' },
+    { key: 'accessibility', label: '可达性', placeholder: '例: 需移除上盖后触达' },
+    { key: 'safety_risks', label: '安全风险', placeholder: '例: 800V高压母排' },
+    { key: 'material_type', label: '材料类型', placeholder: '例: 6061铝合金' },
+    { key: 'estimated_time', label: '拆卸工时', placeholder: '例: 单人拆卸约8 min' },
+    { key: 'reusability', label: '再利用潜力', placeholder: '例: 可直接用于梯次储能' },
+    { key: 'inspection_method', label: '检测方法', placeholder: '例: 红外热像检测' },
+    { key: 'seal_type', label: '密封类型', placeholder: '例: 双组分环氧密封胶' },
+    { key: 'disassembly_order', label: '拆卸顺序约束', placeholder: '例: 需先断开高压回路' },
+    { key: 'reattachment_torque', label: '再组装扭矩', placeholder: '例: M8螺栓18 N·m' },
+    { key: 'fault_clearing', label: '故障清除要求', placeholder: '例: 需使用OEM诊断仪重置BMS' },
+    { key: 'hazardous_material', label: '危险物质', placeholder: '例: 冷却液含乙二醇' },
+  ];
+
+  async function openAttrEditor(componentId: string) {
+    setEditingAttrs(componentId);
+    setAttrLoading(true);
+    try {
+      const res = await evaluationApi.getEvalAttributes(componentId);
+      setAttrForm(res.data.data?.eval_attributes || {});
+    } catch {
+      setAttrForm({});
+    } finally {
+      setAttrLoading(false);
+    }
+  }
+
+  async function saveEvalAttributes() {
+    if (!editingAttrs) return;
+    setAttrLoading(true);
+    try {
+      await evaluationApi.updateEvalAttributes(editingAttrs, attrForm);
+      setEditingAttrs(null);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setAttrLoading(false);
+    }
   }
 
   function getGradeColor(grade: string) {
@@ -554,6 +603,88 @@ export default function EvaluationPage() {
                     })()}
                   </div>
                 </div>
+
+                {/* Component Eval Attributes Editor */}
+                {versionForm.component_ids.length > 0 && (
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                      组件评价属性（可选，点击编辑）
+                    </label>
+                    <div style={{
+                      border: '1px solid #d9d9d9', borderRadius: '4px', padding: '8px',
+                      maxHeight: '200px', overflow: 'auto',
+                    }}>
+                      {versionForm.component_ids.map(cid => {
+                        const node = graphNodes.find(n => n.id === cid);
+                        return (
+                          <div key={cid} style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            padding: '4px 8px', marginBottom: '4px', background: '#fafafa', borderRadius: '4px',
+                          }}>
+                            <span style={{ fontSize: '13px' }}>{node?.name || cid}</span>
+                            <button
+                              onClick={() => openAttrEditor(cid)}
+                              style={{
+                                padding: '2px 8px', fontSize: '12px', border: '1px solid #d9d9d9',
+                                borderRadius: '4px', background: '#fff', cursor: 'pointer',
+                              }}
+                            >编辑属性</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Attribute Edit Modal */}
+                {editingAttrs && (
+                  <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', zIndex: 1100,
+                  }}>
+                    <div style={{
+                      background: 'white', borderRadius: '8px', padding: '24px',
+                      width: '500px', maxHeight: '80vh', overflow: 'auto',
+                    }}>
+                      <h4 style={{ marginTop: 0 }}>
+                        编辑评价属性 - {graphNodes.find(n => n.id === editingAttrs)?.name || editingAttrs}
+                      </h4>
+                      {attrLoading ? (
+                        <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>加载中...</div>
+                      ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                          {EVAL_ATTR_FIELDS.map(f => (
+                            <div key={f.key} style={{ gridColumn: 'span 2' }}>
+                              <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '2px' }}>{f.label}</label>
+                              <input
+                                value={attrForm[f.key] || ''}
+                                onChange={e => setAttrForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                                placeholder={f.placeholder}
+                                style={{
+                                  width: '100%', padding: '6px 8px', fontSize: '13px',
+                                  border: '1px solid #d9d9d9', borderRadius: '4px', boxSizing: 'border-box',
+                                }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                        <button
+                          onClick={() => setEditingAttrs(null)}
+                          style={{ padding: '6px 16px', border: '1px solid #d9d9d9', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}
+                        >取消</button>
+                        <button
+                          onClick={saveEvalAttributes}
+                          disabled={attrLoading}
+                          style={{ padding: '6px 16px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                        >{attrLoading ? '保存中...' : '保存'}</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                   <button
                     onClick={() => setShowVersionForm(false)}

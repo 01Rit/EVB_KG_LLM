@@ -226,6 +226,12 @@ class RuleEngine:
             "REQUIRES_STRUCTURE": "HAS_FEATURE",
             "CONSTRAINED_BY": "CONSTRAINED_BY",
         }
+        attr_field_map = {
+            "REQUIRES_CONNECTION": "connection_type",
+            "REQUIRES_TOOL": "tool_requirements",
+            "REQUIRES_STRUCTURE": "accessibility",
+            "CONSTRAINED_BY": "safety_risks",
+        }
 
         expected_rel = rel_type_map.get(condition.condition_type)
         if not expected_rel:
@@ -234,7 +240,7 @@ class RuleEngine:
         target_name = condition.target_label
         nodes_by_id = {n["id"]: n for n in subgraph.get("nodes", [])}
 
-        # Try exact match first
+        # Try exact match on relationships
         for rel in subgraph.get("relationships", []):
             if rel["type"] != expected_rel:
                 continue
@@ -242,7 +248,7 @@ class RuleEngine:
             if end_node.get("name") == target_name:
                 return 1.0
 
-        # Fuzzy match via FuzzyScorer
+        # Fuzzy match on relationships via FuzzyScorer
         if self.fuzzy_scorer:
             best_score = 0.0
             for rel in subgraph.get("relationships", []):
@@ -264,6 +270,34 @@ class RuleEngine:
                     conclusion_grade=rule.conclusion_grade.value,
                 )
                 best_score = max(best_score, score)
-            return best_score
+            if best_score > 0:
+                return best_score
+
+        # Match against node eval_attributes
+        attr_field = attr_field_map.get(condition.condition_type)
+        if attr_field:
+            for node in subgraph.get("nodes", []):
+                attrs = node.get("eval_attributes", {})
+                attr_value = attrs.get(attr_field, "")
+                if not attr_value:
+                    continue
+                # Exact substring match
+                if target_name.lower() in attr_value.lower():
+                    return 1.0
+                # Fuzzy match via FuzzyScorer
+                if self.fuzzy_scorer:
+                    score = self.fuzzy_scorer.score(
+                        condition_type=condition.condition_type,
+                        target_label=target_name,
+                        actual_name=attr_value,
+                        actual_labels=node.get("labels", ["Component"]),
+                        rule_name=rule.name,
+                        rule_description=rule.description,
+                        dimension=rule.dimension,
+                        conclusion_score=rule.conclusion_score,
+                        conclusion_grade=rule.conclusion_grade.value,
+                    )
+                    if score > 0:
+                        return score
 
         return 0.0

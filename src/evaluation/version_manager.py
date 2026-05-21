@@ -1,4 +1,5 @@
 """Version management: DesignVersion subgraph creation, retrieval, diff."""
+import json
 import logging
 import uuid
 from typing import Optional
@@ -89,12 +90,50 @@ class VersionManager:
     def _build_subgraph(self, component_ids: list[str], connection_ids: list[str]) -> dict:
         nodes = []
         relationships = []
+
+        # Fetch component data from Neo4j
         for cid in component_ids:
-            nodes.append({"id": cid, "labels": ["L1_Component"], "name": cid})
-        for cid in connection_ids:
-            nodes.append({"id": cid, "labels": ["ConnectionType"], "name": cid})
-        # Create USES_CONNECTION from each component to each connection
-        for comp_id in component_ids:
-            for conn_id in connection_ids:
-                relationships.append({"start": comp_id, "end": conn_id, "type": "USES_CONNECTION"})
+            try:
+                rows = self.neo4j.execute_query(
+                    "MATCH (c:Component {id: $id}) RETURN c.name AS name, c.eval_attributes AS attrs",
+                    {"id": cid},
+                )
+                if rows:
+                    attrs = {}
+                    raw = rows[0].get("attrs")
+                    if raw:
+                        try:
+                            attrs = json.loads(raw)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                    nodes.append({
+                        "id": cid,
+                        "labels": ["L1_Component"],
+                        "name": rows[0].get("name", cid),
+                        "eval_attributes": attrs,
+                    })
+                else:
+                    nodes.append({"id": cid, "labels": ["L1_Component"], "name": cid, "eval_attributes": {}})
+            except Exception as e:
+                logger.warning(f"Failed to fetch component {cid}: {e}")
+                nodes.append({"id": cid, "labels": ["L1_Component"], "name": cid, "eval_attributes": {}})
+
+        # Parse connection_ids as "from_id->to_id" and fetch RELATES relationships
+        for conn_id in connection_ids:
+            if "->" in conn_id:
+                from_id, to_id = conn_id.split("->", 1)
+                try:
+                    rels = self.neo4j.execute_query(
+                        "MATCH (a:Component {id: $from_id})-[r:RELATES]->(b:Component {id: $to_id}) "
+                        "RETURN properties(r) AS props",
+                        {"from_id": from_id, "to_id": to_id},
+                    )
+                    rel = {"start": from_id, "end": to_id, "type": "RELATES"}
+                    if rels:
+                        rel["properties"] = rels[0]["props"]
+                    relationships.append(rel)
+                except Exception as e:
+                    logger.warning(f"Failed to fetch relationship {conn_id}: {e}")
+                    relationships.append({"start": from_id, "end": to_id, "type": "RELATES"})
+
         return {"nodes": nodes, "relationships": relationships}

@@ -1,4 +1,5 @@
 """Tests for VersionManager."""
+import json
 import pytest
 from unittest.mock import MagicMock
 
@@ -6,16 +7,36 @@ from src.evaluation.version_manager import VersionManager
 from src.evaluation.models import DesignVersionCreate, VersionStatus
 
 
-@pytest.fixture
-def mock_neo4j():
+def make_mock_neo4j(component_names: dict[str, str] = None):
+    """Create a mock Neo4j client that returns component data.
+
+    Args:
+        component_names: {component_id: component_name} mapping
+    """
+    component_names = component_names or {}
+
+    def execute_query(query, params=None):
+        params = params or {}
+        # Component lookup by id
+        if "MATCH (c:Component {id:" in query or "MATCH (c:Component {id: $id})" in query:
+            cid = params.get("id") or params.get("cid")
+            if cid and cid in component_names:
+                return [{"name": component_names[cid], "attrs": "{}"}]
+            return []
+        # RELATES relationship lookup
+        if "RELATES" in query:
+            return []
+        return []
+
     client = MagicMock()
-    client.execute_query = MagicMock(return_value=[])
+    client.execute_query = MagicMock(side_effect=execute_query)
     return client
 
 
 @pytest.fixture
-def vm(mock_neo4j):
-    return VersionManager(mock_neo4j)
+def vm():
+    neo4j = make_mock_neo4j({"c1": "组件A", "c2": "组件B", "a": "组件A", "b": "组件B", "c": "组件C"})
+    return VersionManager(neo4j)
 
 
 class TestCreateVersion:
@@ -23,7 +44,6 @@ class TestCreateVersion:
         data = DesignVersionCreate(
             design_name="battery_v1",
             component_ids=["c1", "c2"],
-            connection_ids=["conn1"],
         )
         v = vm.create_version(data)
         assert v.version_id.startswith("v_")
@@ -58,13 +78,11 @@ class TestGetVersionDetail:
         data = DesignVersionCreate(
             design_name="d",
             component_ids=["c1", "c2"],
-            connection_ids=["conn1"],
         )
         v = vm.create_version(data)
         detail = vm.get_version_detail(v.version_id)
         assert detail is not None
         assert len(detail.components) == 2
-        assert len(detail.connections) == 1
 
     def test_returns_none_for_nonexistent(self, vm):
         assert vm.get_version_detail("nonexistent") is None
@@ -75,13 +93,15 @@ class TestGetSubgraph:
         data = DesignVersionCreate(
             design_name="d",
             component_ids=["c1"],
-            connection_ids=["conn1"],
         )
         v = vm.create_version(data)
         sg = vm.get_subgraph(v.version_id)
         node_ids = {n["id"] for n in sg["nodes"]}
         assert "c1" in node_ids
-        assert "conn1" in node_ids
+        # Node should have name from Neo4j
+        c1_node = next(n for n in sg["nodes"] if n["id"] == "c1")
+        assert c1_node["name"] == "组件A"
+        assert "eval_attributes" in c1_node
 
     def test_returns_empty_for_nonexistent(self, vm):
         sg = vm.get_subgraph("nonexistent")
@@ -102,24 +122,21 @@ class TestUpdateVersionStatus:
 class TestDiffVersions:
     def test_detects_added_and_removed_nodes(self, vm):
         v1 = vm.create_version(DesignVersionCreate(
-            design_name="d", component_ids=["a", "b"], connection_ids=["r1"],
+            design_name="d", component_ids=["a", "b"],
         ))
         v2 = vm.create_version(DesignVersionCreate(
-            design_name="d", component_ids=["b", "c"], connection_ids=["r2"],
+            design_name="d", component_ids=["b", "c"],
         ))
         diff = vm.diff_versions(v1.version_id, v2.version_id)
         added_ids = {n["id"] for n in diff["added"]["nodes"]}
         removed_ids = {n["id"] for n in diff["removed"]["nodes"]}
         assert "c" in added_ids
-        assert "r2" in added_ids
         assert "a" in removed_ids
-        assert "r1" in removed_ids
 
     def test_detects_added_and_removed_rels(self, vm):
         v1 = vm.create_version(DesignVersionCreate(
             design_name="d", component_ids=["a", "b"],
         ))
-        # manually inject relationships into subgraphs
         vm._subgraphs[v1.version_id]["relationships"] = [
             {"start": "a", "end": "b", "type": "NEXT"},
         ]

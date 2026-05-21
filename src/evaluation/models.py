@@ -100,6 +100,7 @@ class L4Rule(BaseModel):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     dimension: Dimension = Dimension.TECHNICAL
+    fuzzy_threshold: float = 0.6
 
 
 # ── Grade Standard ──
@@ -305,6 +306,25 @@ class CandidateRule(BaseModel):
     fuzzy_threshold: float = 0.6
     duplicate_status: Optional[str] = None
     duplicate_of: Optional[str] = None
+
+
+class ComponentEvalAttributes(BaseModel):
+    """15 re-manufacturing attributes extracted from design documents."""
+    modularity: str = ""
+    connection_type: str = ""
+    connection_reversibility: str = ""
+    tool_requirements: str = ""
+    accessibility: str = ""
+    safety_risks: str = ""
+    material_type: str = ""
+    estimated_time: str = ""
+    reusability: str = ""
+    inspection_method: str = ""
+    seal_type: str = ""
+    disassembly_order: str = ""
+    reattachment_torque: str = ""
+    fault_clearing: str = ""
+    hazardous_material: str = ""
 
 
 class GradeConfig(BaseModel):
