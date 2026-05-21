@@ -6,8 +6,10 @@ from typing import Optional
 from src.evaluation.models import (
     L4Rule, L4Assessment, RuleMatchDetail, ReasoningPath, Grade,
     AssessmentStatus, RuleStatus, Dimension, DimensionScore, GradeConfig,
+    GradeThreshold,
 )
 from src.evaluation.rule_engine import RuleEngine
+from src.evaluation.rsr import compute_dimension_rsr, compute_total_rsr, compute_dynamic_thresholds
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +175,137 @@ class Evaluator:
         elif score >= cfg.qualified_threshold:
             return Grade.QUALIFIED
         return Grade.UNQUALIFIED
+
+    def batch_evaluate(self, subgraphs: dict[str, dict]) -> list[L4Assessment]:
+        """Evaluate multiple versions using RSR method.
+
+        Args:
+            subgraphs: {version_id: subgraph_dict}
+
+        Returns:
+            List of L4Assessment, one per version, with RSR-based scores and dynamic grading.
+        """
+        active_rules = self.rule_engine.get_rules(status=RuleStatus.ACTIVE)
+        if not active_rules:
+            return [self._empty_assessment(vid) for vid in subgraphs]
+
+        version_ids = list(subgraphs.keys())
+        l = len(version_ids)
+
+        # Group rules by dimension
+        dim_rule_map: dict[Dimension, list] = {d: [] for d in Dimension}
+        for rule in active_rules:
+            dim_rule_map[rule.dimension].append(rule)
+
+        # Step 1: Collect per-rule match scores once (avoids calling match_rule twice)
+        # match_cache[vid][rule_id] = (score, details)
+        match_cache: dict[str, dict[str, tuple[float, list[dict]]]] = {}
+        for vid, sg in subgraphs.items():
+            match_cache[vid] = {}
+            for rule in active_rules:
+                score, details = self.rule_engine.match_rule(rule, sg)
+                match_cache[vid][rule.rule_id] = (score, details)
+
+        # Step 2: Build single-mode dimension scores from cached results
+        single_dim_scores: dict[str, dict[Dimension, dict]] = {}
+        for vid in version_ids:
+            single_dim_scores[vid] = {}
+            for dim in Dimension:
+                dim_rules = dim_rule_map[dim]
+                total_weighted = 0.0
+                total_weight = 0.0
+                matched_count = 0
+                for rule in dim_rules:
+                    score, _ = match_cache[vid][rule.rule_id]
+                    is_matched = score > 0
+                    if is_matched:
+                        total_weighted += rule.conclusion_score * rule.weight
+                        matched_count += 1
+                    total_weight += rule.weight
+                dim_score = total_weighted / total_weight if total_weight > 0 else 0.0
+                single_dim_scores[vid][dim] = {
+                    "score": dim_score,
+                    "matched_rules": matched_count,
+                    "total_rules": len(dim_rules),
+                }
+
+        # Step 3: Compute RSR per dimension
+        dim_rsrs: dict[Dimension, list[float]] = {}
+        for dim in Dimension:
+            dim_rules = dim_rule_map[dim]
+            if not dim_rules:
+                dim_rsrs[dim] = [0.0] * l
+                continue
+            scores = []
+            for vid in version_ids:
+                rule_scores = [match_cache[vid][rule.rule_id][0] for rule in dim_rules]
+                scores.append(rule_scores)
+            weights = [r.weight for r in dim_rules]
+            dim_rsrs[dim] = compute_dimension_rsr(scores, weights)
+
+        # Step 4: Hierarchical synthesis across dimensions
+        dim_rsr_matrix = [dim_rsrs[dim] for dim in Dimension]
+        dim_weights = [1.0 / 3, 1.0 / 3, 1.0 / 3]
+        total_rsrs = compute_total_rsr(dim_rsr_matrix, dim_weights)
+
+        # Step 5: Dynamic thresholds (total-level for overall grade, per-dimension for dimension grades)
+        total_thresholds = compute_dynamic_thresholds(total_rsrs)
+        dim_thresholds: dict[Dimension, dict] = {}
+        for dim in Dimension:
+            if dim_rule_map[dim]:
+                dim_thresholds[dim] = compute_dynamic_thresholds(dim_rsrs[dim])
+            else:
+                dim_thresholds[dim] = total_thresholds
+
+        # Step 6: Build batch assessments
+        results = []
+        for idx, vid in enumerate(version_ids):
+            dim_scores = []
+            for dim in Dimension:
+                dt = dim_thresholds.get(dim, total_thresholds)
+                grade = self._rsr_to_grade(dim_rsrs[dim][idx], dt)
+                info = single_dim_scores[vid][dim]
+                dim_scores.append(DimensionScore(
+                    dimension=dim,
+                    rsr_value=round(dim_rsrs[dim][idx], 4),
+                    rank=self._compute_rank(dim_rsrs[dim], idx),
+                    grade=grade,
+                    matched_rules=info["matched_rules"],
+                    total_rules=info["total_rules"],
+                ))
+
+            overall_grade = self._rsr_to_grade(total_rsrs[idx], total_thresholds)
+            assessment = L4Assessment(
+                assessment_id=f"batch_{uuid.uuid4().hex[:8]}",
+                version_id=vid,
+                overall_score=round(total_rsrs[idx], 4),
+                overall_grade=overall_grade,
+                dimension_scores=dim_scores,
+                evaluation_mode="batch",
+                grade_thresholds=GradeThreshold(
+                    excellent=total_thresholds["excellent"],
+                    good=total_thresholds["good"],
+                    qualified=total_thresholds["qualified"],
+                    regression=total_thresholds["regression"],
+                ),
+            )
+            results.append(assessment)
+
+        return results
+
+    def _rsr_to_grade(self, rsr_value: float, thresholds: dict) -> Grade:
+        """Convert RSR value to grade using dynamic thresholds."""
+        if rsr_value >= thresholds["excellent"]:
+            return Grade.EXCELLENT
+        elif rsr_value >= thresholds["good"]:
+            return Grade.GOOD
+        elif rsr_value >= thresholds["qualified"]:
+            return Grade.QUALIFIED
+        return Grade.UNQUALIFIED
+
+    def _compute_rank(self, values: list[float], idx: int) -> int:
+        """Compute rank (1-based, highest=1) of values[idx] within the list."""
+        return 1 + sum(1 for i, v in enumerate(values) if i != idx and v > values[idx])
 
     def _format_pattern(self, details: list[dict]) -> str:
         parts = []

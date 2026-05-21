@@ -448,3 +448,125 @@ class TestDimensionScores:
         assert custom_evaluator._score_to_grade(0.8) == Grade.GOOD
         assert custom_evaluator._score_to_grade(0.6) == Grade.QUALIFIED
         assert custom_evaluator._score_to_grade(0.4) == Grade.UNQUALIFIED
+
+
+# ── Batch RSR Evaluation ──
+
+
+class TestBatchEvaluate:
+    def test_batch_evaluate_basic(self, engine, evaluator, subgraph):
+        engine.create_rule(L4RuleCreate(
+            name="tech_rule",
+            conclusion_score=0.8,
+            conclusion_grade=Grade.GOOD,
+            dimension=Dimension.TECHNICAL,
+            conditions=[L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接")],
+        ))
+        subgraph2 = {
+            "nodes": [{"id": "n1", "name": "焊接连接", "label": "Connection"}],
+            "relationships": [{"start": "n1", "end": "n1", "type": "USES_CONNECTION"}],
+        }
+        subgraphs = {"v1": subgraph, "v2": subgraph2}
+        assessments = evaluator.batch_evaluate(subgraphs)
+        assert len(assessments) == 2
+        for a in assessments:
+            assert a.evaluation_mode == "batch"
+            assert a.grade_thresholds is not None
+            assert len(a.dimension_scores) == 3
+
+    def test_batch_evaluate_empty_rules(self, engine, evaluator, subgraph):
+        subgraphs = {"v1": subgraph}
+        assessments = evaluator.batch_evaluate(subgraphs)
+        assert len(assessments) == 1
+        assert assessments[0].overall_score == 0.0
+
+    def test_batch_rsr_ordering(self, engine, evaluator):
+        # Create rules in all 3 dimensions so "good" outranks "bad" across the board
+        engine.create_rule(L4RuleCreate(
+            name="tech_r",
+            conclusion_score=0.9,
+            conclusion_grade=Grade.GOOD,
+            dimension=Dimension.TECHNICAL,
+            conditions=[L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接")],
+        ))
+        engine.create_rule(L4RuleCreate(
+            name="econ_r",
+            conclusion_score=0.7,
+            conclusion_grade=Grade.GOOD,
+            dimension=Dimension.ECONOMIC,
+            conditions=[L4RuleCondition(condition_type="REQUIRES_TOOL", target_label="标准扳手")],
+        ))
+        engine.create_rule(L4RuleCreate(
+            name="env_r",
+            conclusion_score=0.6,
+            conclusion_grade=Grade.QUALIFIED,
+            dimension=Dimension.ENVIRONMENTAL,
+            conditions=[L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接")],
+        ))
+        sg_good = {
+            "nodes": [
+                {"id": "n1", "name": "螺栓连接", "label": "Connection"},
+                {"id": "n2", "name": "标准扳手", "label": "Tool"},
+            ],
+            "relationships": [
+                {"start": "n1", "end": "n1", "type": "USES_CONNECTION"},
+                {"start": "n1", "end": "n2", "type": "REQUIRES_TOOL"},
+            ],
+        }
+        sg_bad = {
+            "nodes": [{"id": "n1", "name": "焊接连接", "label": "Connection"}],
+            "relationships": [{"start": "n1", "end": "n1", "type": "USES_CONNECTION"}],
+        }
+        assessments = evaluator.batch_evaluate({"good": sg_good, "bad": sg_bad})
+        good_a = next(a for a in assessments if a.version_id == "good")
+        bad_a = next(a for a in assessments if a.version_id == "bad")
+        assert good_a.overall_score > bad_a.overall_score
+
+    def test_batch_has_dimension_rsr_values(self, engine, evaluator, subgraph):
+        engine.create_rule(L4RuleCreate(
+            name="r1",
+            conclusion_score=0.8,
+            conclusion_grade=Grade.GOOD,
+            dimension=Dimension.TECHNICAL,
+            conditions=[L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接")],
+        ))
+        subgraph2 = {
+            "nodes": [{"id": "n1", "name": "焊接连接", "label": "Connection"}],
+            "relationships": [{"start": "n1", "end": "n1", "type": "USES_CONNECTION"}],
+        }
+        assessments = evaluator.batch_evaluate({"v1": subgraph, "v2": subgraph2})
+        for a in assessments:
+            for ds in a.dimension_scores:
+                assert ds.rsr_value is not None
+                assert ds.rank is not None
+            # version_id should be a string, not a list
+            assert isinstance(a.version_id, str)
+
+    def test_batch_grade_thresholds_populated(self, engine, evaluator, subgraph):
+        engine.create_rule(L4RuleCreate(
+            name="r1",
+            conclusion_score=0.8,
+            conclusion_grade=Grade.GOOD,
+            dimension=Dimension.TECHNICAL,
+            conditions=[L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="螺栓连接")],
+        ))
+        assessments = evaluator.batch_evaluate({"v1": subgraph})
+        a = assessments[0]
+        assert a.grade_thresholds is not None
+        assert a.grade_thresholds.excellent > a.grade_thresholds.good
+        assert a.grade_thresholds.good > a.grade_thresholds.qualified
+
+    def test_compute_rank(self, evaluator):
+        # _compute_rank: highest value gets rank 1
+        values = [0.5, 0.9, 0.3]
+        assert evaluator._compute_rank(values, 1) == 1  # 0.9 is highest
+        assert evaluator._compute_rank(values, 0) == 2  # 0.5 is second
+        assert evaluator._compute_rank(values, 2) == 3  # 0.3 is lowest
+
+    def test_rsr_to_grade(self, evaluator):
+        thresholds = {"excellent": 0.8, "good": 0.6, "qualified": 0.4, "regression": {"a": 0.0, "b": 1.0}}
+        assert evaluator._rsr_to_grade(0.9, thresholds) == Grade.EXCELLENT
+        assert evaluator._rsr_to_grade(0.8, thresholds) == Grade.EXCELLENT
+        assert evaluator._rsr_to_grade(0.7, thresholds) == Grade.GOOD
+        assert evaluator._rsr_to_grade(0.5, thresholds) == Grade.QUALIFIED
+        assert evaluator._rsr_to_grade(0.3, thresholds) == Grade.UNQUALIFIED
