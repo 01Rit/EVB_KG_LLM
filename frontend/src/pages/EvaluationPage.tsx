@@ -463,10 +463,13 @@ export default function EvaluationPage() {
                     maxHeight: '150px', overflow: 'auto', border: '1px solid #d9d9d9',
                     borderRadius: '4px', padding: '8px',
                   }}>
-                    {graphEdges.length === 0 && (
-                      <div style={{ color: '#999', fontSize: '13px' }}>暂无连接</div>
-                    )}
-                    {graphEdges.map((e, i) => {
+                    {(() => {
+                      const l1Ids = new Set(graphNodes.filter(n => n.type === 'L1').map(n => n.id));
+                      const l1Edges = graphEdges.filter(e => l1Ids.has(e.from_) && l1Ids.has(e.to));
+                      if (l1Edges.length === 0) {
+                        return <div style={{ color: '#999', fontSize: '13px' }}>暂无 L1 组件间连接</div>;
+                      }
+                      return l1Edges.map((e, i) => {
                       const fromNode = graphNodes.find(n => n.id === e.from_);
                       const toNode = graphNodes.find(n => n.id === e.to);
                       const key = `${e.from_}->${e.to}`;
@@ -487,7 +490,8 @@ export default function EvaluationPage() {
                           {label}
                         </label>
                       );
-                    })}
+                      });
+                    })()}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
