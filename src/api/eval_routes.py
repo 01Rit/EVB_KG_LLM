@@ -7,7 +7,7 @@ from src.evaluation.models import (
     L4Rule, L4RuleCreate, L4Assessment, L4AssessmentCreate,
     DesignVersionCreate, ExpertFeedbackCreate,
     OptimizationActionCreate, DesignPredictionRequest,
-    RuleExtractRequest, RuleStatus, Grade,
+    RuleExtractRequest, RuleStatus, Grade, GradeConfig,
 )
 from src.evaluation.rule_engine import RuleEngine
 from src.evaluation.evaluator import Evaluator
@@ -46,6 +46,8 @@ class RuleUpdateRequest(BaseModel):
     conclusion_grade: Optional[Grade] = None
     weight: Optional[float] = None
     status: Optional[RuleStatus] = None
+    dimension: Optional[str] = None
+    fuzzy_threshold: Optional[float] = None
 
 
 class ApiResponse(BaseModel):
@@ -236,16 +238,62 @@ async def predict_design(data: DesignPredictionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Batch Assessment ──
+
+@router.post("/api/v1/evaluation/batch-assess", response_model=ApiResponse)
+async def batch_assess(data: dict):
+    version_ids = data.get("version_ids", [])
+    if not version_ids:
+        raise HTTPException(status_code=400, detail="至少选择一个设计版本")
+    try:
+        assessments = closed_loop.batch_assess(version_ids)
+        return ApiResponse(data={
+            "assessments": [a.model_dump() for a in assessments],
+            "grade_thresholds": assessments[0].grade_thresholds.model_dump() if assessments and assessments[0].grade_thresholds else None,
+        })
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Batch assessment failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Grade Config ──
+
+@router.get("/api/v1/evaluation/grade-config", response_model=ApiResponse)
+async def get_grade_config():
+    return ApiResponse(data=closed_loop.get_grade_config().model_dump())
+
+
+@router.put("/api/v1/evaluation/grade-config", response_model=ApiResponse)
+async def update_grade_config(data: dict):
+    config = GradeConfig(**data)
+    return ApiResponse(data=closed_loop.update_grade_config(config).model_dump())
+
+
+@router.post("/api/v1/evaluation/grade-config/calibrate", response_model=ApiResponse)
+async def calibrate_thresholds():
+    try:
+        return ApiResponse(data=closed_loop.calibrate_thresholds().model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ── Import (Rule Extraction) ──
 
 @router.post("/api/v1/evaluation/import/extract", response_model=ApiResponse)
 async def extract_rules(data: RuleExtractRequest):
     try:
+        logger.info(f"Extracting rules from docs: {data.doc_ids}")
+        logger.info(f"import_handler id: {id(import_handler)}")
+        logger.info(f"LLM max_tokens: {import_handler.llm.max_tokens}")
         candidates = import_handler.extract_from_docs(data.doc_ids)
+        logger.info(f"Extracted {len(candidates)} candidates")
         validated = import_handler.check_consistency(candidates)
+        logger.info(f"Validated {len(validated)} candidates")
         return ApiResponse(data={"candidates": [c.model_dump() for c in validated]})
     except Exception as e:
-        logger.error(f"Rule extraction failed: {e}")
+        logger.error(f"Rule extraction failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

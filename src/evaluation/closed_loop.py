@@ -3,11 +3,14 @@ import logging
 import uuid
 from typing import Optional
 
+import numpy as np
+
 from src.evaluation.models import (
     L4Assessment, ReasoningPath, ExpertFeedback, ExpertFeedbackCreate,
     OptimizationAction, OptimizationActionCreate, DesignVersion,
     DesignVersionCreate, ActionOperation, ActionStatus, VersionStatus,
     AssessmentStatus, FeedbackType, Grade, RuleMatchDetail,
+    GradeConfig, GradeThreshold,
 )
 from src.evaluation.rule_engine import RuleEngine
 from src.evaluation.evaluator import Evaluator
@@ -31,6 +34,7 @@ class ClosedLoop:
         self.feedback_generator = FeedbackGenerator(llm_client)
         self._assessments: dict[str, L4Assessment] = {}
         self._feedbacks: dict[str, ExpertFeedback] = {}
+        self._grade_config = GradeConfig()
 
     # -- Stage 1: Reason --
 
@@ -158,6 +162,46 @@ class ClosedLoop:
             f"with {len(all_actions)} actions"
         )
         return new_version
+
+    # -- Batch Assessment --
+
+    def batch_assess(self, version_ids: list[str]) -> list[L4Assessment]:
+        """Evaluate multiple versions using RSR method."""
+        subgraphs = {}
+        for vid in version_ids:
+            sg = self.version_manager.get_subgraph(vid)
+            if not sg or not sg.get("nodes"):
+                raise ValueError(f"Version {vid} not found or has no data")
+            subgraphs[vid] = sg
+        assessments = self.evaluator.batch_evaluate(subgraphs)
+        for a in assessments:
+            self._assessments[a.assessment_id] = a
+        return assessments
+
+    # -- Grade Config --
+
+    def get_grade_config(self) -> GradeConfig:
+        return self._grade_config
+
+    def update_grade_config(self, config: GradeConfig) -> GradeConfig:
+        self._grade_config = config
+        # Also update the evaluator's config
+        self.evaluator.grade_config = config
+        return config
+
+    def calibrate_thresholds(self) -> GradeConfig:
+        if len(self._assessments) < 10:
+            raise ValueError("历史评价数据不足 10 条，无法标定")
+        scores = [a.overall_score for a in self._assessments.values()]
+        config = GradeConfig(
+            excellent_threshold=float(np.percentile(scores, 75)),
+            good_threshold=float(np.percentile(scores, 50)),
+            qualified_threshold=float(np.percentile(scores, 25)),
+            source="calibrated",
+        )
+        self._grade_config = config
+        self.evaluator.grade_config = config
+        return config
 
     # -- Query methods --
 
