@@ -305,10 +305,23 @@ async def list_candidates():
 
 @router.post("/api/v1/evaluation/import/approve/{candidate_id}", response_model=ApiResponse)
 async def approve_candidate(candidate_id: str):
-    rule = import_handler.approve_candidate(candidate_id)
-    if not rule:
+    from src.evaluation.models import L4RuleCreate
+    cand = import_handler.get_candidates()
+    cand_map = {c.rule_id: c for c in cand}
+    if candidate_id not in cand_map:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    closed_loop.rule_engine._rules[rule.rule_id] = rule
+    c = cand_map[candidate_id]
+    rule = closed_loop.rule_engine.create_rule(L4RuleCreate(
+        name=c.name,
+        description=c.description,
+        conclusion_score=c.conclusion_score,
+        conclusion_grade=c.conclusion_grade,
+        weight=c.weight,
+        conditions=c.conditions,
+        source_doc_id=c.source_doc_id,
+        dimension=c.dimension,
+    ))
+    import_handler.reject_candidate(candidate_id)
     return ApiResponse(data=rule.model_dump())
 
 

@@ -7,15 +7,29 @@ from src.evaluation.models import (
 
 
 class MockNeo4jClient:
-    """Minimal mock for Neo4j client."""
+    """Mock Neo4j client that tracks calls."""
+
+    def __init__(self):
+        self.calls = []
+        self._load_return = []
 
     def execute_query(self, query, params=None):
+        self.calls.append({"query": query, "params": params or {}})
+        if "MATCH (r:L4Rule)" in query and "OPTIONAL MATCH (r)-[rel:HAS_CONDITION]" in query and "RETURN r" in query:
+            return self._load_return
         return []
 
 
 @pytest.fixture
-def engine():
-    return RuleEngine(neo4j_client=MockNeo4jClient())
+def mock_neo4j():
+    return MockNeo4jClient()
+
+
+@pytest.fixture
+def engine(mock_neo4j):
+    eng = RuleEngine(neo4j_client=mock_neo4j)
+    mock_neo4j.calls.clear()  # clear load calls
+    return eng
 
 
 @pytest.fixture
@@ -133,9 +147,10 @@ class TestConditionMatching:
             conditions=[cond],
         )
         rule = engine.create_rule(rule_create)
-        matched, details = engine.match_rule(rule, subgraph)
-        assert matched is True
+        score, details = engine.match_rule(rule, subgraph)
+        assert score > 0.6
         assert details[0]["matched"] is True
+        assert details[0]["fuzzy_score"] == 1.0
 
     def test_requires_connection_no_match(self, engine, subgraph):
         cond = L4RuleCondition(condition_type="REQUIRES_CONNECTION", target_label="焊接连接")
@@ -144,8 +159,8 @@ class TestConditionMatching:
             conditions=[cond],
         )
         rule = engine.create_rule(rule_create)
-        matched, details = engine.match_rule(rule, subgraph)
-        assert matched is False
+        score, details = engine.match_rule(rule, subgraph)
+        assert score < 0.6
         assert details[0]["matched"] is False
 
     def test_requires_tool_match(self, engine, subgraph):
@@ -155,8 +170,8 @@ class TestConditionMatching:
             conditions=[cond],
         )
         rule = engine.create_rule(rule_create)
-        matched, details = engine.match_rule(rule, subgraph)
-        assert matched is True
+        score, details = engine.match_rule(rule, subgraph)
+        assert score > 0.6
 
     def test_requires_structure_match(self, engine, subgraph):
         cond = L4RuleCondition(condition_type="REQUIRES_STRUCTURE", target_label="可直达")
@@ -165,8 +180,8 @@ class TestConditionMatching:
             conditions=[cond],
         )
         rule = engine.create_rule(rule_create)
-        matched, details = engine.match_rule(rule, subgraph)
-        assert matched is True
+        score, details = engine.match_rule(rule, subgraph)
+        assert score > 0.6
 
     def test_constrained_by_match(self, engine, subgraph):
         cond = L4RuleCondition(condition_type="CONSTRAINED_BY", target_label="安全规范A")
@@ -175,8 +190,8 @@ class TestConditionMatching:
             conditions=[cond],
         )
         rule = engine.create_rule(rule_create)
-        matched, details = engine.match_rule(rule, subgraph)
-        assert matched is True
+        score, details = engine.match_rule(rule, subgraph)
+        assert score > 0.6
 
     def test_unknown_condition_type(self, engine, subgraph):
         cond = L4RuleCondition(condition_type="UNKNOWN_TYPE", target_label="anything")
@@ -185,8 +200,8 @@ class TestConditionMatching:
             conditions=[cond],
         )
         rule = engine.create_rule(rule_create)
-        matched, details = engine.match_rule(rule, subgraph)
-        assert matched is False
+        score, details = engine.match_rule(rule, subgraph)
+        assert score < 0.6
 
 
 # ── Rule Matching Tests ──
@@ -203,8 +218,8 @@ class TestRuleMatching:
             conditions=conds,
         )
         rule = engine.create_rule(rule_create)
-        matched, details = engine.match_rule(rule, subgraph)
-        assert matched is True
+        score, details = engine.match_rule(rule, subgraph)
+        assert score > 0.6
         assert len(details) == 2
         assert all(d["matched"] for d in details)
 
@@ -218,8 +233,8 @@ class TestRuleMatching:
             conditions=conds,
         )
         rule = engine.create_rule(rule_create)
-        matched, details = engine.match_rule(rule, subgraph)
-        assert matched is False
+        score, details = engine.match_rule(rule, subgraph)
+        assert score < 0.6
         assert details[0]["matched"] is True
         assert details[1]["matched"] is False
 
@@ -229,6 +244,73 @@ class TestRuleMatching:
             conditions=[],
         )
         rule = engine.create_rule(rule_create)
-        matched, details = engine.match_rule(rule, subgraph)
-        assert matched is True
+        score, details = engine.match_rule(rule, subgraph)
+        assert score >= 0.0  # no conditions => rule_score=0.0, rule_matched=True => returns 0.0
         assert details == []
+
+
+# ── Persistence Tests ──
+
+
+class TestPersistence:
+    def test_create_persists_to_neo4j(self, engine, mock_neo4j, sample_create):
+        rule = engine.create_rule(sample_create)
+        persist_calls = [c for c in mock_neo4j.calls if "MERGE (r:L4Rule" in c["query"]]
+        assert len(persist_calls) == 1
+        params = persist_calls[0]["params"]
+        assert params["rule_id"] == rule.rule_id
+        assert params["props"]["name"] == "螺栓连接易拆卸"
+        assert len(params["conditions"]) == 1
+        assert params["conditions"][0]["condition_type"] == "REQUIRES_CONNECTION"
+
+    def test_delete_removes_from_neo4j(self, engine, mock_neo4j, sample_create):
+        rule = engine.create_rule(sample_create)
+        mock_neo4j.calls.clear()
+        engine.delete_rule(rule.rule_id)
+        delete_calls = [c for c in mock_neo4j.calls if "DELETE rel, c, r" in c["query"]]
+        assert len(delete_calls) == 1
+        assert delete_calls[0]["params"]["rule_id"] == rule.rule_id
+
+    def test_update_persists_to_neo4j(self, engine, mock_neo4j, sample_create):
+        rule = engine.create_rule(sample_create)
+        mock_neo4j.calls.clear()
+        engine.update_rule(rule.rule_id, name="更新名称")
+        persist_calls = [c for c in mock_neo4j.calls if "MERGE (r:L4Rule" in c["query"]]
+        assert len(persist_calls) == 1
+        assert persist_calls[0]["params"]["props"]["name"] == "更新名称"
+
+    def test_load_from_neo4j(self, mock_neo4j):
+        mock_neo4j._load_return = [
+            {
+                "rule_id": "rule_loaded",
+                "name": "加载的规则",
+                "description": "从Neo4j加载",
+                "conclusion_score": 0.7,
+                "conclusion_grade": "良好",
+                "weight": 1.5,
+                "status": "active",
+                "dimension": "economic",
+                "fuzzy_threshold": 0.7,
+                "source_doc_id": "doc_123",
+                "created_at": "2026-01-01T00:00:00",
+                "updated_at": "2026-01-01T00:00:00",
+                "conditions": [
+                    {
+                        "condition_type": "REQUIRES_TOOL",
+                        "target_label": "专用工具",
+                        "target_id": "",
+                        "effect": 0.5,
+                        "fuzzy_threshold": 0.6,
+                        "idx": 0,
+                    },
+                ],
+            }
+        ]
+        engine = RuleEngine(neo4j_client=mock_neo4j)
+        assert len(engine._rules) == 1
+        rule = engine.get_rule_by_id("rule_loaded")
+        assert rule is not None
+        assert rule.name == "加载的规则"
+        assert rule.dimension.value == "economic"
+        assert len(rule.conditions) == 1
+        assert rule.conditions[0].target_label == "专用工具"
