@@ -434,10 +434,38 @@ export default function EvaluationPage() {
                     maxHeight: '150px', overflow: 'auto', border: '1px solid #d9d9d9',
                     borderRadius: '4px', padding: '8px',
                   }}>
-                    {graphNodes.filter(n => n.type === 'L1').length === 0 && (
-                      <div style={{ color: '#999', fontSize: '13px' }}>暂无 L1 组件</div>
-                    )}
-                    {graphNodes.filter(n => n.type === 'L1').map(n => (
+                    {(() => {
+                      const l1Nodes = graphNodes.filter(n => n.type === 'L1');
+                      const allSelected = l1Nodes.length > 0 && l1Nodes.every(n => versionForm.component_ids.includes(n.id));
+                      return (
+                        <>
+                          {l1Nodes.length > 0 && (
+                            <label style={{
+                              display: 'inline-block', padding: '4px 10px', margin: '3px',
+                              borderRadius: '4px', cursor: 'pointer', fontSize: '13px',
+                              background: allSelected ? '#1890ff' : '#fff',
+                              color: allSelected ? 'white' : '#1890ff',
+                              border: '1px solid #1890ff', fontWeight: 500,
+                            }}>
+                              <input
+                                type="checkbox"
+                                checked={allSelected}
+                                onChange={() => {
+                                  if (allSelected) {
+                                    setVersionForm(prev => ({ ...prev, component_ids: [] }));
+                                  } else {
+                                    setVersionForm(prev => ({ ...prev, component_ids: l1Nodes.map(n => n.id) }));
+                                  }
+                                }}
+                                style={{ marginRight: '4px' }}
+                              />
+                              全选
+                            </label>
+                          )}
+                          {l1Nodes.length === 0 && (
+                            <div style={{ color: '#999', fontSize: '13px' }}>暂无 L1 组件</div>
+                          )}
+                          {l1Nodes.map(n => (
                       <label key={n.id} style={{
                         display: 'inline-block', padding: '4px 10px', margin: '3px',
                         borderRadius: '4px', cursor: 'pointer', fontSize: '13px',
@@ -452,7 +480,10 @@ export default function EvaluationPage() {
                         />
                         {n.name}
                       </label>
-                    ))}
+                      ))}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
                 <div style={{ marginBottom: '16px' }}>
@@ -466,10 +497,37 @@ export default function EvaluationPage() {
                     {(() => {
                       const l1Ids = new Set(graphNodes.filter(n => n.type === 'L1').map(n => n.id));
                       const l1Edges = graphEdges.filter(e => l1Ids.has(e.from_) && l1Ids.has(e.to));
-                      if (l1Edges.length === 0) {
-                        return <div style={{ color: '#999', fontSize: '13px' }}>暂无 L1 组件间连接</div>;
-                      }
-                      return l1Edges.map((e, i) => {
+                      const allKeys = l1Edges.map(e => `${e.from_}->${e.to}`);
+                      const allConnSelected = allKeys.length > 0 && allKeys.every(k => versionForm.connection_ids.includes(k));
+                      return (
+                        <>
+                          {allKeys.length > 0 && (
+                            <label style={{
+                              display: 'inline-block', padding: '4px 10px', margin: '3px',
+                              borderRadius: '4px', cursor: 'pointer', fontSize: '13px',
+                              background: allConnSelected ? '#52c41a' : '#fff',
+                              color: allConnSelected ? 'white' : '#52c41a',
+                              border: '1px solid #52c41a', fontWeight: 500,
+                            }}>
+                              <input
+                                type="checkbox"
+                                checked={allConnSelected}
+                                onChange={() => {
+                                  if (allConnSelected) {
+                                    setVersionForm(prev => ({ ...prev, connection_ids: [] }));
+                                  } else {
+                                    setVersionForm(prev => ({ ...prev, connection_ids: allKeys }));
+                                  }
+                                }}
+                                style={{ marginRight: '4px' }}
+                              />
+                              全选
+                            </label>
+                          )}
+                          {allKeys.length === 0 && (
+                            <div style={{ color: '#999', fontSize: '13px' }}>暂无 L1 组件间连接</div>
+                          )}
+                          {l1Edges.map((e, i) => {
                       const fromNode = graphNodes.find(n => n.id === e.from_);
                       const toNode = graphNodes.find(n => n.id === e.to);
                       const key = `${e.from_}->${e.to}`;
@@ -490,7 +548,9 @@ export default function EvaluationPage() {
                           {label}
                         </label>
                       );
-                      });
+                      })}
+                        </>
+                      );
                     })()}
                   </div>
                 </div>
